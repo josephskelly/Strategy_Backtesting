@@ -92,7 +92,70 @@ def get_previous_close() -> pd.DataFrame:
     return summary
 
 
+def analyze_daily_changes(range_: str = "1y") -> pd.DataFrame:
+    """Compute daily percent change statistics over the given range.
+
+    Returns a DataFrame with mean, median, std dev, min, max of daily
+    percent changes for each sector ETF.
+    """
+    closes = fetch_sector_closes(range_=range_)
+    daily_pct = closes.pct_change().dropna() * 100  # percent
+
+    rows = []
+    for ticker in daily_pct.columns:
+        series = daily_pct[ticker].dropna()
+        rows.append({
+            "Sector": SECTOR_ETFS[ticker],
+            "Ticker": ticker,
+            "Trading Days": len(series),
+            "Mean Daily %": series.mean(),
+            "Median Daily %": series.median(),
+            "Std Dev %": series.std(),
+            "Min Daily %": series.min(),
+            "Max Daily %": series.max(),
+        })
+
+    stats = pd.DataFrame(rows)
+    stats = stats.sort_values("Mean Daily %", ascending=False).reset_index(drop=True)
+    return stats
+
+
+def position_sizing(capital: float = 10_000, months: int = 3,
+                    trades_per_day: int = 1) -> dict:
+    """Estimate per-trade allocation to spread capital over a period.
+
+    Assumes ~21 trading days per month.
+    """
+    trading_days = months * 21
+    total_trades = trading_days * trades_per_day
+    per_trade = capital / total_trades
+
+    return {
+        "capital": capital,
+        "months": months,
+        "trading_days": trading_days,
+        "trades_per_day": trades_per_day,
+        "total_trades": total_trades,
+        "per_trade": round(per_trade, 2),
+    }
+
+
 if __name__ == "__main__":
-    print("Fetching Vanguard Sector ETF data...\n")
-    summary = get_previous_close()
-    print(summary.to_string(index=False, float_format="%.2f"))
+    print("=" * 70)
+    print("  Vanguard Sector ETF — Daily % Change Statistics (1 Year)")
+    print("=" * 70)
+
+    stats = analyze_daily_changes(range_="1y")
+    print(stats.to_string(index=False, float_format="%.4f"))
+
+    print("\n")
+    print("=" * 70)
+    print("  Position Sizing — $10,000 over 3 months")
+    print("=" * 70)
+
+    sizing = position_sizing(capital=10_000, months=3)
+    print(f"  Capital:          ${sizing['capital']:,.2f}")
+    print(f"  Period:           {sizing['months']} months ({sizing['trading_days']} trading days)")
+    print(f"  Trades/day:       {sizing['trades_per_day']}")
+    print(f"  Total trades:     {sizing['total_trades']}")
+    print(f"  Per-trade size:   ${sizing['per_trade']:,.2f}")
