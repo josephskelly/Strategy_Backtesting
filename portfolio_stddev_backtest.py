@@ -117,17 +117,14 @@ class PortfolioStddevBacktester:
         """
         Position size proportional to z-score strength.
 
-        More extreme moves → larger positions (up to all available cash)
+        Linear scaling: at z_threshold → 100% of available capital
+        This matches the original high-performance implementation.
         """
         if z_score == 0:
             return 0
         abs_z = abs(z_score)
-        # Scale from 0 to 1 based on z_threshold
-        # At z_threshold: 10% of available cash
-        # At 2*z_threshold: 50%
-        # At 3*z_threshold: 100%
-        position_ratio = min((abs_z / self.z_threshold - 1) / 2, 1.0) * 0.9 + 0.1
-        position_ratio = min(position_ratio, 1.0)
+        # Scale from 0 to 100% of available cash based on z-score intensity
+        position_ratio = min(abs_z / self.z_threshold, 1.0)
         return available_cash * position_ratio
 
     def _get_available_capital(self, ticker: str) -> float:
