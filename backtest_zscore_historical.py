@@ -12,10 +12,63 @@ from datetime import datetime, timedelta
 from backtest_engine import PortfolioStddevBacktester
 from leveraged_etfs import fetch_leveraged_closes
 import time
+import requests
+
+
+def _yahoo_chart(ticker: str, range_: str = "5d", interval: str = "1d") -> list[dict]:
+    """Fetch OHLCV data from Yahoo Finance's chart API for a single ticker."""
+    url = (
+        f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
+        f"?range={range_}&interval={interval}"
+    )
+    headers = {"User-Agent": "Mozilla/5.0"}
+    resp = requests.get(url, headers=headers, timeout=15)
+    resp.raise_for_status()
+    data = resp.json()
+
+    result = data["chart"]["result"][0]
+    timestamps = result["timestamp"]
+    quotes = result["indicators"]["quote"][0]
+
+    rows = []
+    for i, ts in enumerate(timestamps):
+        rows.append({
+            "date": pd.Timestamp(ts, unit="s").normalize(),
+            "close": quotes["close"][i],
+        })
+    return rows
+
+
+def fetch_sp500_data(range_: str = "5y") -> pd.DataFrame:
+    """Fetch S&P 500 (SPY) closing prices."""
+    rows = _yahoo_chart("SPY", range_=range_)
+    df = pd.DataFrame(rows).set_index("date")
+    df.index.name = "Date"
+    return df[["close"]].rename(columns={"close": "SPY"})
+
+
+def backtest_sp500_buyandhold(prices: pd.Series, initial_capital: float = 10000) -> dict:
+    """Simple buy-and-hold S&P 500 strategy."""
+    if len(prices) < 2:
+        return {"return_pct": 0, "final_value": initial_capital, "pnl": 0}
+
+    # Buy at the start
+    shares = initial_capital / prices.iloc[0]
+
+    # Sell at the end
+    final_value = shares * prices.iloc[-1]
+    pnl = final_value - initial_capital
+    return_pct = (pnl / initial_capital) * 100
+
+    return {
+        "return_pct": return_pct,
+        "final_value": final_value,
+        "pnl": pnl,
+    }
 
 
 def run_single_period(start_date: str, end_date: str) -> dict:
-    """Run backtest for a single period."""
+    """Run backtest for a single period (Leveraged ETF + S&P 500 comparison)."""
     date_range = f"{start_date} to {end_date}"
 
     # Calculate range string for Yahoo Finance
@@ -45,7 +98,7 @@ def run_single_period(start_date: str, end_date: str) -> dict:
         if len(leveraged_closes) < 21:
             return None
 
-        # Run backtest
+        # Run leveraged ETF backtest
         backtester = PortfolioStddevBacktester(
             prices_df=leveraged_closes,
             initial_capital=10000,
@@ -53,19 +106,33 @@ def run_single_period(start_date: str, end_date: str) -> dict:
             z_threshold=1.0,
             max_sector_allocation=0.25,
         )
-        results = backtester.run()
+        lev_results = backtester.run()
+
+        # Fetch S&P 500 data
+        sp500_data = fetch_sp500_data(range_=range_str)
+        sp500_data = sp500_data[(sp500_data.index >= start) & (sp500_data.index <= end)]
+
+        if len(sp500_data) < 2:
+            return None
+
+        # Run S&P 500 buy-and-hold
+        sp500_results = backtest_sp500_buyandhold(sp500_data["SPY"])
 
         return {
             "period": date_range,
             "start": start_date,
             "end": end_date,
-            "return": results.total_return,
-            "value": results.final_value,
-            "drawdown": results.max_drawdown,
-            "sharpe": results.sharpe_ratio,
-            "trades": results.num_trades,
-            "invested_pct": results.avg_invested_pct,
-            "pnl": results.final_pnl,
+            "lev_return": lev_results.total_return,
+            "lev_value": lev_results.final_value,
+            "lev_drawdown": lev_results.max_drawdown,
+            "lev_sharpe": lev_results.sharpe_ratio,
+            "lev_trades": lev_results.num_trades,
+            "lev_invested_pct": lev_results.avg_invested_pct,
+            "lev_pnl": lev_results.final_pnl,
+            "sp500_return": sp500_results["return_pct"],
+            "sp500_value": sp500_results["final_value"],
+            "sp500_pnl": sp500_results["pnl"],
+            "outperformance": lev_results.total_return - sp500_results["return_pct"],
         }
     except Exception as e:
         print(f"  Error in period {date_range}: {str(e)[:50]}")
@@ -143,7 +210,8 @@ def run_historical_backtest(num_periods: int = 15):
 
         if result:
             results.append(result)
-            print(f"  Return: {result['return']:>7.2f}% | DD: {result['drawdown']:>7.2f}% | Trades: {result['trades']:>3.0f} | Sharpe: {result['sharpe']:>6.2f}")
+            diff_indicator = "✓" if result['lev_return'] > result['sp500_return'] else "✗"
+            print(f"  Leveraged: {result['lev_return']:>7.2f}% | S&P500: {result['sp500_return']:>7.2f}% ({diff_indicator} {result['outperformance']:+.2f}%)")
 
         time.sleep(0.5)  # Be nice to the API
 
@@ -158,87 +226,89 @@ def run_historical_backtest(num_periods: int = 15):
     print("DETAILED RESULTS")
     print("=" * 150)
 
-    display_cols = ["period", "return", "drawdown", "sharpe", "trades", "invested_pct"]
+    display_cols = ["period", "lev_return", "sp500_return", "outperformance", "lev_sharpe", "lev_trades"]
     display_df = results_df[display_cols].copy()
-    display_df.columns = ["Period", "Return %", "Max DD %", "Sharpe", "Trades", "Avg Invested %"]
+    display_df.columns = ["Period", "Leveraged %", "S&P500 %", "Outperformance", "Sharpe", "Trades"]
     print(display_df.to_string(index=False))
 
     # Summary statistics
     print("\n" + "=" * 150)
-    print("HISTORICAL PERFORMANCE SUMMARY (Z=1.0)")
+    print("HISTORICAL PERFORMANCE SUMMARY")
     print("=" * 150)
 
-    returns = results_df["return"]
-    drawdowns = results_df["drawdown"]
-    sharpes = results_df["sharpe"]
-    trades = results_df["trades"]
+    lev_returns = results_df["lev_return"]
+    sp500_returns = results_df["sp500_return"]
+    drawdowns = results_df["lev_drawdown"]
+    sharpes = results_df["lev_sharpe"]
+    trades = results_df["lev_trades"]
 
-    print(f"\nReturn Statistics:")
-    print(f"  Mean Return:                {returns.mean():>7.2f}%")
-    print(f"  Median Return:              {returns.median():>7.2f}%")
-    print(f"  Std Dev:                    {returns.std():>7.2f}%")
-    print(f"  Min Return:                 {returns.min():>7.2f}%")
-    print(f"  Max Return:                 {returns.max():>7.2f}%")
-    print(f"  Positive Periods:           {(returns > 0).sum()}/{len(returns)} ({(returns > 0).sum()/len(returns)*100:.1f}%)")
+    print(f"\n{'Metric':<35} | {'Leveraged ETF':<30} | {'S&P 500 B&H':<30}")
+    print("-" * 150)
+    print(f"{'Mean Return':<35} | {lev_returns.mean():>7.2f}% {'':<22} | {sp500_returns.mean():>7.2f}% {'':<22}")
+    print(f"{'Median Return':<35} | {lev_returns.median():>7.2f}% {'':<22} | {sp500_returns.median():>7.2f}% {'':<22}")
+    print(f"{'Std Dev':<35} | {lev_returns.std():>7.2f}% {'':<22} | {sp500_returns.std():>7.2f}% {'':<22}")
+    print(f"{'Min Return':<35} | {lev_returns.min():>7.2f}% {'':<22} | {sp500_returns.min():>7.2f}% {'':<22}")
+    print(f"{'Max Return':<35} | {lev_returns.max():>7.2f}% {'':<22} | {sp500_returns.max():>7.2f}% {'':<22}")
+    print(f"{'Positive Periods':<35} | {(lev_returns > 0).sum()}/{len(lev_returns)} ({(lev_returns > 0).sum()/len(lev_returns)*100:.1f}%) | {(sp500_returns > 0).sum()}/{len(sp500_returns)} ({(sp500_returns > 0).sum()/len(sp500_returns)*100:.1f}%)")
 
     print(f"\nRisk Metrics:")
-    print(f"  Avg Max Drawdown:           {drawdowns.mean():>7.2f}%")
-    print(f"  Worst Drawdown:             {drawdowns.min():>7.2f}%")
-    print(f"  Best Case Drawdown:         {drawdowns.max():>7.2f}%")
-    print(f"  Avg Sharpe Ratio:           {sharpes.mean():>7.3f}")
-    print(f"  Median Sharpe Ratio:        {sharpes.median():>7.3f}")
+    print(f"  Avg Max Drawdown (Leveraged):    {drawdowns.mean():>7.2f}%")
+    print(f"  Avg Sharpe Ratio (Leveraged):    {sharpes.mean():>7.3f}")
+    print(f"  Avg Trades per Period:           {trades.mean():>7.0f}")
 
-    print(f"\nTrading Activity:")
-    print(f"  Avg Trades per Period:      {trades.mean():>7.0f}")
-    print(f"  Median Trades per Period:   {trades.median():>7.0f}")
-    print(f"  Range:                      {trades.min():.0f} - {trades.max():.0f}")
-
-    print(f"\nCapital Efficiency:")
-    print(f"  Avg Capital Invested:       {results_df['invested_pct'].mean():>7.1f}%")
+    print(f"\nOutperformance vs S&P 500:")
+    print(f"  Avg Outperformance:              {results_df['outperformance'].mean():>7.2f}%")
+    print(f"  Win Rate (Periods Better):       {(results_df['outperformance'] > 0).sum()}/{len(results_df)} ({(results_df['outperformance'] > 0).sum()/len(results_df)*100:.1f}%)")
 
     # Market periods breakdown
     print("\n" + "=" * 150)
     print("MARKET PERIOD ANALYSIS")
     print("=" * 150)
 
-    print(f"\nBull Markets (Return > 15%):")
-    bull = results_df[results_df["return"] > 15]
+    print(f"\nBull Markets (S&P 500 Return > 15%):")
+    bull = results_df[results_df["sp500_return"] > 15]
     if len(bull) > 0:
         print(f"  Count: {len(bull)} periods")
-        print(f"  Avg Return: {bull['return'].mean():.2f}%")
-        print(f"  Avg Sharpe: {bull['sharpe'].mean():.3f}")
+        print(f"  Avg Leveraged Return: {bull['lev_return'].mean():.2f}%")
+        print(f"  Avg S&P 500 Return: {bull['sp500_return'].mean():.2f}%")
+        print(f"  Avg Outperformance: {bull['outperformance'].mean():.2f}%")
+        print(f"  Avg Sharpe: {bull['lev_sharpe'].mean():.3f}")
 
-    print(f"\nNormal Markets (0% < Return < 15%):")
-    normal = results_df[(results_df["return"] > 0) & (results_df["return"] <= 15)]
+    print(f"\nNormal Markets (0% < S&P 500 Return < 15%):")
+    normal = results_df[(results_df["sp500_return"] > 0) & (results_df["sp500_return"] <= 15)]
     if len(normal) > 0:
         print(f"  Count: {len(normal)} periods")
-        print(f"  Avg Return: {normal['return'].mean():.2f}%")
-        print(f"  Avg Sharpe: {normal['sharpe'].mean():.3f}")
+        print(f"  Avg Leveraged Return: {normal['lev_return'].mean():.2f}%")
+        print(f"  Avg S&P 500 Return: {normal['sp500_return'].mean():.2f}%")
+        print(f"  Avg Outperformance: {normal['outperformance'].mean():.2f}%")
+        print(f"  Avg Sharpe: {normal['lev_sharpe'].mean():.3f}")
 
-    print(f"\nBear Markets (Return < 0%):")
-    bear = results_df[results_df["return"] < 0]
+    print(f"\nBear Markets (S&P 500 Return < 0%):")
+    bear = results_df[results_df["sp500_return"] < 0]
     if len(bear) > 0:
         print(f"  Count: {len(bear)} periods")
-        print(f"  Avg Return: {bear['return'].mean():.2f}%")
-        print(f"  Avg Sharpe: {bear['sharpe'].mean():.3f}")
+        print(f"  Avg Leveraged Return: {bear['lev_return'].mean():.2f}%")
+        print(f"  Avg S&P 500 Return: {bear['sp500_return'].mean():.2f}%")
+        print(f"  Avg Outperformance: {bear['outperformance'].mean():.2f}%")
+        print(f"  Avg Sharpe: {bear['lev_sharpe'].mean():.3f}")
 
-    # Decade breakdown
+    # Time period breakdown
     print("\n" + "=" * 150)
     print("PERFORMANCE BY TIME PERIOD")
     print("=" * 150)
 
-    for decade_start in [2009, 2013, 2017, 2021]:
-        decade_end = decade_start + 4
-        decade_results = results_df[
-            (results_df["start"].str[:4].astype(int) >= decade_start) &
-            (results_df["start"].str[:4].astype(int) < decade_end)
+    for period_start in [2021, 2022, 2023, 2024]:
+        period_results = results_df[
+            (results_df["start"].str[:4].astype(int) == period_start)
         ]
-        if len(decade_results) > 0:
-            print(f"\n{decade_start}-{decade_end}:")
-            print(f"  Periods: {len(decade_results)}")
-            print(f"  Avg Return: {decade_results['return'].mean():>7.2f}%")
-            print(f"  Avg Sharpe: {decade_results['sharpe'].mean():>7.3f}")
-            print(f"  Avg Trades: {decade_results['trades'].mean():>7.0f}")
+        if len(period_results) > 0:
+            print(f"\n{period_start}:")
+            print(f"  Periods: {len(period_results)}")
+            print(f"  Avg Leveraged Return: {period_results['lev_return'].mean():>7.2f}%")
+            print(f"  Avg S&P 500 Return: {period_results['sp500_return'].mean():>7.2f}%")
+            print(f"  Avg Outperformance: {period_results['outperformance'].mean():>7.2f}%")
+            print(f"  Avg Sharpe: {period_results['lev_sharpe'].mean():>7.3f}")
+            print(f"  Avg Trades: {period_results['lev_trades'].mean():>7.0f}")
 
     # Save results
     output_file = "backtest_zscore_historical_results.csv"
@@ -247,38 +317,45 @@ def run_historical_backtest(num_periods: int = 15):
 
     # Overall assessment
     print("\n" + "=" * 150)
-    print("ASSESSMENT")
+    print("ASSESSMENT: LEVERAGED ETF vs S&P 500 BUY-AND-HOLD")
     print("=" * 150)
 
-    overall_avg_return = returns.mean()
-    overall_win_rate = (returns > 0).sum() / len(returns) * 100
+    overall_lev_return = lev_returns.mean()
+    overall_sp500_return = sp500_returns.mean()
+    overall_outperformance = results_df['outperformance'].mean()
+    overall_win_rate = (results_df['outperformance'] > 0).sum() / len(results_df) * 100
     overall_sharpe = sharpes.mean()
 
     print(f"""
-STRATEGY PERFORMANCE ACROSS 15+ YEARS OF MARKET CONDITIONS:
+STRATEGY PERFORMANCE ACROSS 5 YEARS (2021-2026):
 
-Return Profile:
-  • Average Return: {overall_avg_return:.2f}% per 2-year period
-  • Win Rate: {overall_win_rate:.1f}% of periods profitable
-  • Drawdown: {drawdowns.mean():.2f}% average
-
-Risk-Adjusted Performance:
+Leveraged ETF Mean Reversion:
+  • Average Return: {overall_lev_return:.2f}% per 2-year period
+  • Win Rate vs S&P 500: {overall_win_rate:.1f}%
+  • Avg Outperformance: {overall_outperformance:+.2f}%
+  • Avg Drawdown: {drawdowns.mean():.2f}%
   • Sharpe Ratio: {overall_sharpe:.3f}
-  • Consistency: {returns.std():.2f}% std dev
+
+S&P 500 Buy-and-Hold (Benchmark):
+  • Average Return: {overall_sp500_return:.2f}% per 2-year period
+
+Comparison:
+  • Leveraged ETF Outperformance: {overall_lev_return - overall_sp500_return:+.2f}% absolute
+  • Relative Outperformance: {(overall_lev_return / overall_sp500_return - 1) * 100:+.1f}%
 
 Assessment:
 """)
 
-    if overall_avg_return > 20 and overall_win_rate > 80:
-        print(f"  ✅ EXCELLENT: Consistent outperformance across all market conditions")
-    elif overall_avg_return > 15 and overall_win_rate > 70:
-        print(f"  ✅ STRONG: Reliable strategy with good risk-adjusted returns")
-    elif overall_avg_return > 10 and overall_win_rate > 60:
-        print(f"  ✓ GOOD: Positive returns across diverse periods")
-    elif overall_avg_return > 5 and overall_win_rate > 50:
-        print(f"  ⚠️  MODERATE: Works but inconsistent across market conditions")
+    if overall_outperformance > 15:
+        print(f"  ✅ EXCELLENT: Significant outperformance (+{overall_outperformance:.2f}%) with {overall_win_rate:.0f}% win rate")
+    elif overall_outperformance > 10:
+        print(f"  ✅ STRONG: Consistent outperformance (+{overall_outperformance:.2f}%) with {overall_win_rate:.0f}% win rate")
+    elif overall_outperformance > 5:
+        print(f"  ✓ GOOD: Moderate outperformance (+{overall_outperformance:.2f}%) with {overall_win_rate:.0f}% win rate")
+    elif overall_outperformance > 0:
+        print(f"  ⚠️  MODEST: Slight outperformance (+{overall_outperformance:.2f}%) with {overall_win_rate:.0f}% win rate")
     else:
-        print(f"  ❌ WEAK: Struggle in certain market environments")
+        print(f"  ❌ UNDERPERFORMANCE: Strategy trails S&P 500 by {abs(overall_outperformance):.2f}%")
 
     print()
 
