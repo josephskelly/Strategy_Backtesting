@@ -23,7 +23,7 @@ def run_backtest(range_: str = "2y"):
     print()
     print("Configuration:")
     print(f"  Initial Capital:           $10,000")
-    print(f"  ETF Type:                  2x/3x Leveraged (UCC, UYG, LTL, DIG, UGE, ROM, UYM, RXL, UXI, URE, UPW)")
+    print(f"  ETF Type:                  2x Leveraged (UCC, UYG, LTL, DIG, UGE, ROM, UYM, RXL, UXI, URE, UPW)")
     print(f"  Allocation Method:         Dynamic Shared Pool")
     print(f"  Max Per Position:          30% ($3,000)")
     print(f"  Lookback Period:           20 days")

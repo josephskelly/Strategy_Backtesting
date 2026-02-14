@@ -8,17 +8,17 @@ import requests
 import pandas as pd
 
 LEVERAGED_ETFS = {
-    "UCC": "Commodities (Ultra)",
-    "UYG": "Financials (Ultra)",
-    "LTL": "Long-Term Treasury (3x)",
-    "DIG": "Oil & Gas (3x)",
-    "UGE": "Renewable Energy (3x)",
-    "ROM": "Real Estate (3x)",
-    "UYM": "Metals & Mining (3x)",
-    "RXL": "Healthcare (3x)",
+    "UCC": "Commodities (2x)",
+    "UYG": "Financials (2x)",
+    "LTL": "Long-Term Treasury (2x)",
+    "DIG": "Oil & Gas (2x)",
+    "UGE": "Renewable Energy (2x)",
+    "ROM": "Real Estate (2x)",
+    "UYM": "Metals & Mining (2x)",
+    "RXL": "Healthcare (2x)",
     "UXI": "Semiconductors (2x)",
-    "URE": "Real Estate (3x)",
-    "UPW": "Utilities (3x)",
+    "URE": "Real Estate (2x)",
+    "UPW": "Utilities (2x)",
 }
 
 

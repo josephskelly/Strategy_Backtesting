@@ -18,7 +18,7 @@ def run_optimized_backtest(range_: str = "2y", max_allocation: float = 0.20):
     print()
     print("Configuration:")
     print(f"  Initial Capital:           $10,000")
-    print(f"  ETF Type:                  2x/3x Leveraged")
+    print(f"  ETF Type:                  2x Leveraged")
     print(f"  Max Per Position:          {max_allocation*100:.0f}% (${max_allocation*10000:,.0f})")
     print(f"  Lookback Period:           20 days")
     print(f"  Z-Score Threshold:         1.0 (buy at -1.0, sell at +1.0)")
