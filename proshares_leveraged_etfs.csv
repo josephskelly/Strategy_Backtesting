@@ -1,0 +1,52 @@
+Ticker,Name,Leverage,Category
+DDM,Ultra Dow30,+2x,Broad Market
+QLD,Ultra QQQ,+2x,Broad Market
+SSO,Ultra S&P500,+2x,Broad Market
+UWM,Ultra Russell2000,+2x,Broad Market
+MVV,Ultra MidCap400,+2x,Broad Market
+SAA,Ultra SmallCap600,+2x,Broad Market
+TQQQ,UltraPro QQQ,+3x,Broad Market
+UDOW,UltraPro Dow30,+3x,Broad Market
+UPRO,UltraPro S&P500,+3x,Broad Market
+URTY,UltraPro Russell2000,+3x,Broad Market
+UMDD,UltraPro MidCap400,+3x,Broad Market
+ROM,Ultra Technology,+2x,Sector
+RXL,Ultra Health Care,+2x,Sector
+UYG,Ultra Financials,+2x,Sector
+UXI,Ultra Industrials,+2x,Sector
+UYM,Ultra Materials,+2x,Sector
+UCC,Ultra Consumer Discretionary,+2x,Sector
+UGE,Ultra Consumer Staples,+2x,Sector
+UPW,Ultra Utilities,+2x,Sector
+URE,Ultra Real Estate,+2x,Sector
+DIG,Ultra Energy,+2x,Sector
+LTL,Ultra Communication Services,+2x,Sector
+EET,Ultra MSCI Emerging Markets,+2x,International
+EFO,Ultra MSCI EAFE,+2x,International
+EZJ,Ultra MSCI Japan,+2x,International
+UBR,Ultra MSCI Brazil Capped,+2x,International
+UPV,Ultra FTSE Europe,+2x,International
+XPP,Ultra FTSE China 50,+2x,International
+AGQ,Ultra Silver,+2x,Commodities
+BOIL,Ultra Bloomberg Natural Gas,+2x,Commodities
+UCO,Ultra Bloomberg Crude Oil,+2x,Commodities
+UGL,Ultra Gold,+2x,Commodities
+UBT,Ultra 20+ Year Treasury,+2x,Fixed Income
+UST,Ultra 7-10 Year Treasury,+2x,Fixed Income
+UJB,Ultra High Yield,+2x,Fixed Income
+BITU,Ultra Bitcoin ETF,+2x,Crypto
+ETHT,Ultra Ether ETF,+2x,Crypto
+SLON,Ultra Solana ETF,+2x,Crypto
+UXRP,Ultra XRP ETF,+2x,Crypto
+TSLI,Ultra TSLA,+2x,Single Stock
+NVDB,Ultra NVDA,+2x,Single Stock
+PLTA,Ultra PLTR,+2x,Single Stock
+COIA,Ultra COIN,+2x,Single Stock
+CRCA,Ultra CRCL,+2x,Single Stock
+YCL,Ultra Yen,+2x,Currency
+ULE,Ultra Euro,+2x,Currency
+SKYU,Ultra Nasdaq Cloud Computing,+2x,Specialized
+UCYB,Ultra Nasdaq Cybersecurity,+2x,Specialized
+URSP,Ultra S&P 500 Equal Weight,+2x,Specialized
+QQUP,Ultra QQQ Mega,+2x,Specialized
+QQXL,Ultra QQQ Top 30,+2x,Specialized
