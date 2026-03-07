@@ -1,13 +1,14 @@
 """
-Weekly Balance Backtest - Single ETF or All ETFs
+Mean Reversion Backtest - Single Equity or All ETFs
 
-Runs the mean reversion strategy on one or all ProShares leveraged ETFs and
-outputs weekly snapshots: positions_value, cash, net_liq.
+Runs the mean reversion strategy on any ticker or all ProShares leveraged ETFs,
+sizing each trade as a percentage of current NLV per 1% daily move.
 
 Usage:
-    python backtest_urty_weekly.py URTY          # single ETF
-    python backtest_urty_weekly.py TQQQ          # any ticker
-    python backtest_urty_weekly.py --all         # all ETFs from proshares_leveraged_etfs.csv
+    python backtest_mean_regression.py URTY               # single ticker
+    python backtest_mean_regression.py TQQQ --nlv-pct 2.0 # custom sizing
+    python backtest_mean_regression.py --all              # all ETFs from proshares_leveraged_etfs.csv
+    python backtest_mean_regression.py --all --nlv-pct 1.65
 """
 
 import argparse
@@ -20,7 +21,7 @@ import requests
 from backtest_daily_rebalance_no_cap import DailyRebalanceBacktesterNoCap
 
 INITIAL_CAPITAL = 10_000
-TRADE_AMOUNT_PER_PERCENT = 165
+DEFAULT_NLV_PCT = 1.65
 ETF_CSV = "proshares_leveraged_etfs.csv"
 
 
@@ -58,9 +59,9 @@ def fetch_closes(ticker: str) -> pd.DataFrame:
     return df.sort_index()
 
 
-def run_single(ticker: str, category: str = "") -> dict | None:
+def run_single(ticker: str, nlv_pct: float, category: str = "") -> dict | None:
     """
-    Run backtest for one ETF, save weekly CSV, and return a summary dict.
+    Run backtest for one ticker, save weekly CSV, and return a summary dict.
     Returns None on failure.
     """
     ticker = ticker.upper()
@@ -77,7 +78,8 @@ def run_single(ticker: str, category: str = "") -> dict | None:
     backtester = DailyRebalanceBacktesterNoCap(
         prices_df=prices_df,
         initial_capital=INITIAL_CAPITAL,
-        trade_amount_per_percent=TRADE_AMOUNT_PER_PERCENT,
+        nlv_proportional=True,
+        nlv_pct_per_percent=nlv_pct,
     )
     results = backtester.run()
 
@@ -119,7 +121,7 @@ def run_single(ticker: str, category: str = "") -> dict | None:
     }
 
 
-def run_all() -> None:
+def run_all(nlv_pct: float) -> None:
     """Run backtest for every ETF in proshares_leveraged_etfs.csv."""
     try:
         etf_df = pd.read_csv(ETF_CSV)
@@ -132,12 +134,12 @@ def run_all() -> None:
 
     print("=" * 60)
     print(f"Running {len(tickers)} ETFs individually")
-    print(f"Capital: ${INITIAL_CAPITAL:,}  |  Sizing: ${TRADE_AMOUNT_PER_PERCENT}/1%  |  No cap")
+    print(f"Capital: ${INITIAL_CAPITAL:,}  |  Sizing: {nlv_pct}% of NLV per 1%  |  No cap")
     print("=" * 60)
 
     summaries = []
     for ticker in tickers:
-        result = run_single(ticker, category=categories.get(ticker, ""))
+        result = run_single(ticker, nlv_pct=nlv_pct, category=categories.get(ticker, ""))
         if result:
             summaries.append(result)
         time.sleep(0.3)  # avoid rate limiting
@@ -167,24 +169,32 @@ def run_all() -> None:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Mean reversion weekly balance backtest for ProShares leveraged ETFs."
+        description="Mean reversion weekly balance backtest for leveraged ETFs."
     )
     parser.add_argument(
         "ticker",
         nargs="?",
-        help="ETF ticker to backtest (e.g. URTY, TQQQ). Omit when using --all.",
+        help="Ticker to backtest (e.g. URTY, TQQQ). Omit when using --all.",
     )
     parser.add_argument(
         "--all",
         action="store_true",
         help=f"Run all ETFs listed in {ETF_CSV} and print a comparison table.",
     )
+    parser.add_argument(
+        "--nlv-pct",
+        type=float,
+        default=DEFAULT_NLV_PCT,
+        metavar="PCT",
+        help=f"Percent of NLV to trade per 1%% daily move (default: {DEFAULT_NLV_PCT}). "
+             f"E.g. 1.65 means buy 1.65%% of current portfolio value per 1%% drop.",
+    )
     args = parser.parse_args()
 
     if args.all:
-        run_all()
+        run_all(nlv_pct=args.nlv_pct)
     elif args.ticker:
-        result = run_single(args.ticker)
+        result = run_single(args.ticker, nlv_pct=args.nlv_pct)
         if result:
             print(f"\n{'='*50}")
             print("BACKTEST SUMMARY")

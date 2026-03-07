@@ -69,6 +69,8 @@ class DailyRebalanceBacktesterNoCap:
         prices_df: pd.DataFrame,
         initial_capital: float = 10000,
         trade_amount_per_percent: float = 200,
+        nlv_proportional: bool = False,
+        nlv_pct_per_percent: float = 1.65,
     ):
         """
         Initialize daily rebalance backtester (no margin cap).
@@ -76,12 +78,16 @@ class DailyRebalanceBacktesterNoCap:
         Args:
             prices_df: Historical prices (columns=tickers, index=dates)
             initial_capital: Total starting capital
-            trade_amount_per_percent: $ to trade per 1% daily move
+            trade_amount_per_percent: $ to trade per 1% daily move (used when nlv_proportional=False)
+            nlv_proportional: If True, size trades as nlv_pct_per_percent% of current NLV per 1% move
+            nlv_pct_per_percent: % of NLV to trade per 1% move (e.g. 1.65 = 1.65% of NLV)
         """
         self.prices_df = prices_df
         self.tickers = sorted(prices_df.columns.tolist())
         self.initial_capital = initial_capital
         self.trade_amount_per_percent = trade_amount_per_percent
+        self.nlv_proportional = nlv_proportional
+        self.nlv_pct_per_percent = nlv_pct_per_percent
 
         # Portfolio state
         self.positions = {ticker: 0.0 for ticker in self.tickers}
@@ -99,6 +105,18 @@ class DailyRebalanceBacktesterNoCap:
         prev_prices = {ticker: None for ticker in self.tickers}
 
         for i, date in enumerate(self.prices_df.index):
+            # Compute effective trade amount for this day
+            if self.nlv_proportional:
+                invested = sum(
+                    self.positions[t] * self.prices_df.loc[date, t]
+                    for t in self.tickers
+                    if not pd.isna(self.prices_df.loc[date, t])
+                )
+                current_nlv = self.cash + invested
+                effective_trade_amount = (self.nlv_pct_per_percent / 100) * current_nlv
+            else:
+                effective_trade_amount = self.trade_amount_per_percent
+
             # Calculate daily returns and execute trades
             for ticker in self.tickers:
                 current_price = self.prices_df.loc[date, ticker]
@@ -114,7 +132,7 @@ class DailyRebalanceBacktesterNoCap:
                     # BUY signal: sector is DOWN
                     if daily_return_pct < 0:
                         # Buy $X per 1% drop
-                        trade_value = abs(daily_return_pct_val) * self.trade_amount_per_percent
+                        trade_value = abs(daily_return_pct_val) * effective_trade_amount
                         # NO MARGIN CAP - removed: trade_value = min(trade_value, self.cash * 0.25)
 
                         if trade_value > 10 and self.cash > 0:  # Only trade if meaningful and have cash
@@ -140,7 +158,7 @@ class DailyRebalanceBacktesterNoCap:
                     # SELL signal: sector is UP and we have position
                     elif daily_return_pct > 0 and self.positions[ticker] > 0:
                         # Sell $X per 1% gain
-                        trade_value = daily_return_pct_val * self.trade_amount_per_percent
+                        trade_value = daily_return_pct_val * effective_trade_amount
                         max_sell_value = self.positions[ticker] * current_price
                         trade_value = min(trade_value, max_sell_value)
 
