@@ -5,6 +5,8 @@ Test the "buy when sector drops, sell when it bounces back" strategy
 across 30 years of market history (1998-2026).
 """
 
+import os
+
 import pandas as pd
 import numpy as np
 import argparse
@@ -12,6 +14,9 @@ from datetime import datetime, timedelta
 from backtest_dips_bounces import DipsBouncesBacktester
 import time
 import requests
+
+OUTPUT_DIR = "output"
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
 SECTOR_ETFS = {
@@ -332,7 +337,7 @@ def run_historical_backtest(num_periods: int = 30, dip_threshold: float = 0.05):
             print(f"  Avg Sharpe: {decade_results['dips_sharpe'].mean():>7.3f}")
 
     # Save results
-    output_file = "backtest_dips_historical_results.csv"
+    output_file = f"{OUTPUT_DIR}/backtest_dips_historical_results.csv"
     results_df.to_csv(output_file, index=False)
     print(f"\n✓ Detailed results saved to {output_file}")
 

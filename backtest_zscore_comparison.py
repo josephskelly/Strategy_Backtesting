@@ -5,6 +5,8 @@ Test mean reversion strategy on 2x leveraged ETFs with different z-score thresho
 across random 2-year periods to find optimal signal sensitivity.
 """
 
+import os
+
 import pandas as pd
 import numpy as np
 import argparse
@@ -12,6 +14,9 @@ from datetime import datetime, timedelta
 from backtest_engine import PortfolioStddevBacktester
 from leveraged_etfs import fetch_leveraged_closes
 import time
+
+OUTPUT_DIR = "output"
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
 def run_single_period(start_date: str, end_date: str, z_threshold: float) -> dict:
@@ -201,7 +206,7 @@ def run_comparison(num_periods: int = 10):
         "Z1.5_Drawdown": df_15["drawdown"],
     })
 
-    output_file = "backtest_zscore_comparison_results.csv"
+    output_file = f"{OUTPUT_DIR}/backtest_zscore_comparison_results.csv"
     comparison_df.to_csv(output_file, index=False)
     print(f"\n✓ Detailed comparison saved to {output_file}")
 

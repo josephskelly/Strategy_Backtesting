@@ -42,8 +42,8 @@ python backtest_mean_regression.py --all --nlv-pct 1.65 --years 20
 
 | File | Description |
 |---|---|
-| `{ticker}_weekly_balances.csv` | Weekly portfolio snapshot: positions, cash, net liquidation value |
-| `etf_weekly_comparison.csv` | Ranked comparison across all ETFs (when using `--all`) |
+| `output/{ticker}_weekly_balances.csv` | Weekly portfolio snapshot: positions, cash, net liquidation value |
+| `output/etf_weekly_comparison.csv` | Ranked comparison across all ETFs (when using `--all`) |
 
 ## Core Backtester API
 

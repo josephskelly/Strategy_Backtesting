@@ -19,6 +19,8 @@ Sector ETFs available:
 - XLCO: Communication Services
 """
 
+import os
+
 import pandas as pd
 import numpy as np
 import argparse
@@ -26,6 +28,9 @@ from datetime import datetime, timedelta
 from backtest_engine import PortfolioStddevBacktester
 import time
 import requests
+
+OUTPUT_DIR = "output"
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
 # Regular (1x) sector ETFs for historical data
@@ -378,7 +383,7 @@ def run_simulated_historical_backtest(num_periods: int = 30):
             print(f"  Avg Sharpe: {decade_results['lev_sharpe'].mean():>7.3f}")
 
     # Save results
-    output_file = "backtest_simulated_historical_results.csv"
+    output_file = f"{OUTPUT_DIR}/backtest_simulated_historical_results.csv"
     results_df.to_csv(output_file, index=False)
     print(f"\n✓ Detailed results saved to {output_file}")
 

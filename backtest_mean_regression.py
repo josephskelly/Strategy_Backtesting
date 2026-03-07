@@ -15,8 +15,12 @@ Usage:
 """
 
 import argparse
+import os
 import sys
 import time
+
+OUTPUT_DIR = "output"
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 import pandas as pd
 import requests
@@ -113,7 +117,7 @@ def run_single(
     # Resample to weekly (Friday / last trading day of week)
     weekly_df = daily_df.resample("W-FRI").last().dropna().round(2)
 
-    output_path = f"{ticker.lower()}_weekly_balances.csv"
+    output_path = f"{OUTPUT_DIR}/{ticker.lower()}_weekly_balances.csv"
     weekly_df.to_csv(output_path)
     print(f"  Saved {len(weekly_df)} weekly rows → {output_path}")
 
@@ -182,7 +186,7 @@ def run_all(
     summary_df.insert(0, "Rank", range(1, len(summary_df) + 1))
 
     # Save comparison CSV
-    output_csv = "etf_weekly_comparison.csv"
+    output_csv = f"{OUTPUT_DIR}/etf_weekly_comparison.csv"
     summary_df.to_csv(output_csv, index=False)
 
     # Print table

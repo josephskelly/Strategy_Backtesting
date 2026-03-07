@@ -5,10 +5,15 @@ Grouped by category, each run on its own available date range.
 Parameters: $10K initial capital, $165/1% move, no margin cap.
 """
 
+import os
+
 import pandas as pd
 import requests
 import time
 from backtest_daily_rebalance_no_cap import DailyRebalanceBacktesterNoCap
+
+OUTPUT_DIR = "output"
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 INITIAL_CAPITAL = 10_000
 TRADE_AMOUNT = 165
@@ -155,7 +160,7 @@ def main():
 
     # Save full results to CSV
     df_full = pd.DataFrame(results).sort_values("Total Return %", ascending=False)
-    output_csv = "backtest_proshares_category_results.csv"
+    output_csv = f"{OUTPUT_DIR}/backtest_proshares_category_results.csv"
     df_full.to_csv(output_csv, index=False)
     print(f"\nFull results saved to: {output_csv}")
 

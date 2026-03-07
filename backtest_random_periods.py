@@ -9,6 +9,8 @@ Usage:
     python backtest_random_periods.py --periods 20 # 20 random periods
 """
 
+import os
+
 import pandas as pd
 import numpy as np
 from sector_etfs import fetch_sector_closes, SECTOR_ETFS
@@ -16,6 +18,9 @@ from backtest_engine import PortfolioStddevBacktester
 from datetime import timedelta
 import random
 import argparse
+
+OUTPUT_DIR = "output"
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
 def fetch_full_price_history(years: int = 5) -> pd.DataFrame:
@@ -224,9 +229,9 @@ def main(num_periods: int = 10):
     print(comp_df.to_string(index=False))
 
     # Save results
-    mr_df.to_csv("mean_reversion_random_periods.csv", index=False)
-    bh_df.to_csv("buyhold_random_periods.csv", index=False)
-    comp_df.to_csv("comparison_random_periods.csv", index=False)
+    mr_df.to_csv(f"{OUTPUT_DIR}/mean_reversion_random_periods.csv", index=False)
+    bh_df.to_csv(f"{OUTPUT_DIR}/buyhold_random_periods.csv", index=False)
+    comp_df.to_csv(f"{OUTPUT_DIR}/comparison_random_periods.csv", index=False)
 
     print()
     print("✓ Results saved to CSV files")

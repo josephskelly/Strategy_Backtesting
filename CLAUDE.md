@@ -44,9 +44,11 @@ Strategy_Backtesting/
 ├── backtest_engine.py                           # Generic backtest class
 ├── backtest_dips_bounces.py                     # Dip/bounce analysis
 │
-├── OUTPUT FILES:
-├── backtest_annual_comparison.csv               # Annual results by year
-├── backtest_daily_rebalance_results.csv         # Daily backtest results
+├── output/                                      # All generated CSV output files
+│   ├── backtest_annual_comparison.csv           # Annual results by year
+│   ├── backtest_daily_rebalance_results.csv     # Daily backtest results
+│   ├── {ticker}_weekly_balances.csv             # Per-ETF weekly snapshots
+│   └── etf_weekly_comparison.csv               # Ranked comparison (--all)
 │
 └── _archive/                                    # Old/experimental scripts
 ```

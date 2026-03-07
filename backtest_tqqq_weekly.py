@@ -7,10 +7,15 @@ Runs the mean reversion strategy on TQQQ and outputs weekly snapshots:
 - net_liq: total account value (positions + cash)
 """
 
+import os
+
 import pandas as pd
 import numpy as np
 import requests
 from backtest_daily_rebalance_no_cap import DailyRebalanceBacktesterNoCap
+
+OUTPUT_DIR = "output"
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
 def _yahoo_chart(ticker: str, range_: str = "30y", interval: str = "1d") -> list[dict]:
@@ -86,7 +91,7 @@ def main():
     weekly_df = weekly_df.round(2)
 
     # Save to CSV
-    output_path = "tqqq_weekly_balances.csv"
+    output_path = f"{OUTPUT_DIR}/tqqq_weekly_balances.csv"
     weekly_df.to_csv(output_path)
     print(f"\nWeekly balances saved to: {output_path}")
     print(f"Weeks: {len(weekly_df)}")

@@ -4,6 +4,8 @@
 Ultra-simple approach: every day, buy drops and sell gains
 """
 
+import os
+
 import pandas as pd
 import numpy as np
 import argparse
@@ -11,6 +13,9 @@ from datetime import datetime, timedelta
 from backtest_daily_rebalance import DailyRebalanceBacktester
 import time
 import requests
+
+OUTPUT_DIR = "output"
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
 SECTOR_ETFS = {
@@ -329,7 +334,7 @@ def run_historical_backtest(num_periods: int = 30, trade_amount: float = 200):
             print(f"  Avg Sharpe: {decade_results['daily_sharpe'].mean():>7.3f}")
 
     # Save results
-    output_file = "backtest_daily_rebalance_results.csv"
+    output_file = f"{OUTPUT_DIR}/backtest_daily_rebalance_results.csv"
     results_df.to_csv(output_file, index=False)
     print(f"\n✓ Detailed results saved to {output_file}")
 

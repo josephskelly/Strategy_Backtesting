@@ -4,12 +4,17 @@ Annual Comparison: Daily Rebalance vs Buy-and-Hold
 Test strategy for every calendar year 1998-2025
 """
 
+import os
+
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 from backtest_daily_rebalance import DailyRebalanceBacktester
 import time
 import requests
+
+OUTPUT_DIR = "output"
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
 SECTOR_ETFS = {
@@ -263,7 +268,7 @@ def run_annual_comparison(trade_amount: float = 300):
             print(f"  Win Rate: {(decade_results['outperformance'] > 0).sum()}/{len(decade_results)} years")
 
     # Save results
-    output_file = "backtest_annual_comparison.csv"
+    output_file = f"{OUTPUT_DIR}/backtest_annual_comparison.csv"
     results_df.to_csv(output_file, index=False)
     print(f"\n✓ Detailed results saved to {output_file}")
 

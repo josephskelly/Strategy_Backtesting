@@ -5,6 +5,8 @@ Test mean reversion strategy on 2x leveraged ETFs (25% allocation)
 against a simple buy-and-hold VOO strategy across random 2-year periods.
 """
 
+import os
+
 import pandas as pd
 import numpy as np
 import argparse
@@ -13,6 +15,9 @@ from backtest_engine import PortfolioStddevBacktester
 from leveraged_etfs import fetch_leveraged_closes, LEVERAGED_ETFS
 import requests
 import time
+
+OUTPUT_DIR = "output"
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
 def _yahoo_chart(ticker: str, range_: str = "5d", interval: str = "1d") -> list[dict]:
@@ -218,7 +223,7 @@ def run_random_periods(num_periods: int = 10):
     print(f"Avg Trades per Period:              {results_df['lev_trades'].mean():.0f}")
 
     # Save detailed results
-    output_file = "backtest_leveraged_vs_voo_results.csv"
+    output_file = f"{OUTPUT_DIR}/backtest_leveraged_vs_voo_results.csv"
     results_df.to_csv(output_file, index=False)
     print(f"\n✓ Detailed results saved to {output_file}")
 

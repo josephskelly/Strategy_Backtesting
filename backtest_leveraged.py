@@ -9,10 +9,15 @@ Usage:
     python backtest_leveraged.py --range 5y         # 5 year backtest
 """
 
+import os
+
 import pandas as pd
 import argparse
 from backtest_engine import PortfolioStddevBacktester
 from leveraged_etfs import fetch_leveraged_closes, LEVERAGED_ETFS
+
+OUTPUT_DIR = "output"
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
 def run_backtest(range_: str = "2y"):
@@ -93,7 +98,7 @@ def run_backtest(range_: str = "2y"):
     print(f"Avg Win Rate:                {position_results['Win Rate %'].mean():.2f}%")
 
     # Save results
-    output_file = "backtest_leveraged_results.csv"
+    output_file = f"{OUTPUT_DIR}/backtest_leveraged_results.csv"
     position_results.to_csv(output_file, index=False)
     print(f"\n✓ Results saved to {output_file}")
 

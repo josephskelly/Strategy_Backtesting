@@ -5,6 +5,8 @@ Test mean reversion strategy on 2x leveraged ETFs across random 2-year periods
 spanning 15+ years of market history, with periods spaced far apart for diversity.
 """
 
+import os
+
 import pandas as pd
 import numpy as np
 import argparse
@@ -13,6 +15,9 @@ from backtest_engine import PortfolioStddevBacktester
 from leveraged_etfs import fetch_leveraged_closes
 import time
 import requests
+
+OUTPUT_DIR = "output"
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
 def _yahoo_chart(ticker: str, range_: str = "5d", interval: str = "1d") -> list[dict]:
@@ -311,7 +316,7 @@ def run_historical_backtest(num_periods: int = 15):
             print(f"  Avg Trades: {period_results['lev_trades'].mean():>7.0f}")
 
     # Save results
-    output_file = "backtest_zscore_historical_results.csv"
+    output_file = f"{OUTPUT_DIR}/backtest_zscore_historical_results.csv"
     results_df.to_csv(output_file, index=False)
     print(f"\n✓ Detailed results saved to {output_file}")
 
