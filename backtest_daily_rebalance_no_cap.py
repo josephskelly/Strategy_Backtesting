@@ -71,9 +71,10 @@ class DailyRebalanceBacktesterNoCap:
         trade_amount_per_percent: float = 200,
         nlv_proportional: bool = False,
         nlv_pct_per_percent: float = 1.65,
+        margin_cap: float | None = None,
     ):
         """
-        Initialize daily rebalance backtester (no margin cap).
+        Initialize daily rebalance backtester.
 
         Args:
             prices_df: Historical prices (columns=tickers, index=dates)
@@ -81,6 +82,7 @@ class DailyRebalanceBacktesterNoCap:
             trade_amount_per_percent: $ to trade per 1% daily move (used when nlv_proportional=False)
             nlv_proportional: If True, size trades as nlv_pct_per_percent% of current NLV per 1% move
             nlv_pct_per_percent: % of NLV to trade per 1% move (e.g. 1.65 = 1.65% of NLV)
+            margin_cap: If set, cap each buy to this fraction of current cash (e.g. 0.25 = 25% cap)
         """
         self.prices_df = prices_df
         self.tickers = sorted(prices_df.columns.tolist())
@@ -88,6 +90,7 @@ class DailyRebalanceBacktesterNoCap:
         self.trade_amount_per_percent = trade_amount_per_percent
         self.nlv_proportional = nlv_proportional
         self.nlv_pct_per_percent = nlv_pct_per_percent
+        self.margin_cap = margin_cap
 
         # Portfolio state
         self.positions = {ticker: 0.0 for ticker in self.tickers}
@@ -133,10 +136,11 @@ class DailyRebalanceBacktesterNoCap:
                     if daily_return_pct < 0:
                         # Buy $X per 1% drop
                         trade_value = abs(daily_return_pct_val) * effective_trade_amount
-                        # NO MARGIN CAP - removed: trade_value = min(trade_value, self.cash * 0.25)
+                        if self.margin_cap is not None:
+                            trade_value = min(trade_value, self.cash * self.margin_cap)
 
                         if trade_value > 10 and self.cash > 0:  # Only trade if meaningful and have cash
-                            # Cap to available cash (but no artificial 25% limit)
+                            # Cap to available cash
                             trade_value = min(trade_value, self.cash)
 
                             qty = trade_value / current_price

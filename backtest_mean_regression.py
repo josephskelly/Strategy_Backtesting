@@ -5,10 +5,13 @@ Runs the mean reversion strategy on any ticker or all ProShares leveraged ETFs,
 sizing each trade as a percentage of current NLV per 1% daily move.
 
 Usage:
-    python backtest_mean_regression.py URTY               # single ticker
-    python backtest_mean_regression.py TQQQ --nlv-pct 2.0 # custom sizing
-    python backtest_mean_regression.py --all              # all ETFs from proshares_leveraged_etfs.csv
-    python backtest_mean_regression.py --all --nlv-pct 1.65
+    python backtest_mean_regression.py URTY                        # single ticker, 30y daily
+    python backtest_mean_regression.py TQQQ --nlv-pct 2.0         # custom sizing
+    python backtest_mean_regression.py TQQQ --years 10            # last 10 years
+    python backtest_mean_regression.py TQQQ --interval 1wk        # weekly bars
+    python backtest_mean_regression.py TQQQ --cap                  # enable 25% margin cap
+    python backtest_mean_regression.py --all                       # all ETFs from proshares_leveraged_etfs.csv
+    python backtest_mean_regression.py --all --nlv-pct 1.65 --years 5
 """
 
 import argparse
@@ -22,6 +25,8 @@ from backtest_daily_rebalance_no_cap import DailyRebalanceBacktesterNoCap
 
 INITIAL_CAPITAL = 10_000
 DEFAULT_NLV_PCT = 1.65
+DEFAULT_YEARS = 30
+DEFAULT_INTERVAL = "1d"
 ETF_CSV = "proshares_leveraged_etfs.csv"
 
 
@@ -51,28 +56,37 @@ def _yahoo_chart(ticker: str, range_: str = "30y", interval: str = "1d") -> list
     return rows
 
 
-def fetch_closes(ticker: str) -> pd.DataFrame:
+def fetch_closes(ticker: str, range_: str = "30y", interval: str = "1d") -> pd.DataFrame:
     """Fetch closing prices for a single ticker."""
-    rows = _yahoo_chart(ticker, range_="30y")
+    rows = _yahoo_chart(ticker, range_=range_, interval=interval)
     df = pd.DataFrame(rows).set_index("date")
     df.columns = [ticker]
     return df.sort_index()
 
 
-def run_single(ticker: str, nlv_pct: float, category: str = "") -> dict | None:
+def run_single(
+    ticker: str,
+    nlv_pct: float,
+    category: str = "",
+    years: int = DEFAULT_YEARS,
+    interval: str = DEFAULT_INTERVAL,
+    cap: bool = False,
+) -> dict | None:
     """
     Run backtest for one ticker, save weekly CSV, and return a summary dict.
     Returns None on failure.
     """
     ticker = ticker.upper()
-    print(f"\nFetching {ticker} data from Yahoo Finance...")
+    range_ = f"{years}y"
+    print(f"\nFetching {ticker} data from Yahoo Finance ({range_}, {interval})...")
     try:
-        prices_df = fetch_closes(ticker)
+        prices_df = fetch_closes(ticker, range_=range_, interval=interval)
     except Exception as e:
         print(f"  Warning: Could not fetch {ticker}: {e}")
         return None
 
-    print(f"  {ticker}: {len(prices_df)} trading days "
+    bar_label = "bars" if interval != "1d" else "trading days"
+    print(f"  {ticker}: {len(prices_df)} {bar_label} "
           f"({prices_df.index[0].date()} to {prices_df.index[-1].date()})")
 
     backtester = DailyRebalanceBacktesterNoCap(
@@ -80,6 +94,7 @@ def run_single(ticker: str, nlv_pct: float, category: str = "") -> dict | None:
         initial_capital=INITIAL_CAPITAL,
         nlv_proportional=True,
         nlv_pct_per_percent=nlv_pct,
+        margin_cap=0.25 if cap else None,
     )
     results = backtester.run()
 
@@ -121,7 +136,12 @@ def run_single(ticker: str, nlv_pct: float, category: str = "") -> dict | None:
     }
 
 
-def run_all(nlv_pct: float) -> None:
+def run_all(
+    nlv_pct: float,
+    years: int = DEFAULT_YEARS,
+    interval: str = DEFAULT_INTERVAL,
+    cap: bool = False,
+) -> None:
     """Run backtest for every ETF in proshares_leveraged_etfs.csv."""
     try:
         etf_df = pd.read_csv(ETF_CSV)
@@ -132,14 +152,23 @@ def run_all(nlv_pct: float) -> None:
     tickers = list(etf_df["Ticker"])
     categories = dict(zip(etf_df["Ticker"], etf_df["Category"]))
 
+    cap_label = "25% cap" if cap else "no cap"
     print("=" * 60)
     print(f"Running {len(tickers)} ETFs individually")
-    print(f"Capital: ${INITIAL_CAPITAL:,}  |  Sizing: {nlv_pct}% of NLV per 1%  |  No cap")
+    print(f"Capital: ${INITIAL_CAPITAL:,}  |  Sizing: {nlv_pct}% of NLV per 1%  |  {cap_label}")
+    print(f"Range: {years}y  |  Interval: {interval}")
     print("=" * 60)
 
     summaries = []
     for ticker in tickers:
-        result = run_single(ticker, nlv_pct=nlv_pct, category=categories.get(ticker, ""))
+        result = run_single(
+            ticker,
+            nlv_pct=nlv_pct,
+            category=categories.get(ticker, ""),
+            years=years,
+            interval=interval,
+            cap=cap,
+        )
         if result:
             summaries.append(result)
         time.sleep(0.3)  # avoid rate limiting
@@ -189,15 +218,41 @@ def main():
         help=f"Percent of NLV to trade per 1%% daily move (default: {DEFAULT_NLV_PCT}). "
              f"E.g. 1.65 means buy 1.65%% of current portfolio value per 1%% drop.",
     )
+    parser.add_argument(
+        "--years",
+        type=int,
+        default=DEFAULT_YEARS,
+        metavar="N",
+        help=f"How many years of history to fetch from Yahoo Finance (default: {DEFAULT_YEARS}). "
+             f"E.g. --years 10 tests the last 10 years.",
+    )
+    parser.add_argument(
+        "--interval",
+        choices=["1d", "1wk"],
+        default=DEFAULT_INTERVAL,
+        help=f"Bar interval: daily (1d) or weekly (1wk) (default: {DEFAULT_INTERVAL}).",
+    )
+    parser.add_argument(
+        "--cap",
+        action="store_true",
+        help="Enable the 25%% margin cap: limit each buy to at most 25%% of current cash.",
+    )
     args = parser.parse_args()
 
     if args.all:
-        run_all(nlv_pct=args.nlv_pct)
+        run_all(nlv_pct=args.nlv_pct, years=args.years, interval=args.interval, cap=args.cap)
     elif args.ticker:
-        result = run_single(args.ticker, nlv_pct=args.nlv_pct)
+        result = run_single(
+            args.ticker,
+            nlv_pct=args.nlv_pct,
+            years=args.years,
+            interval=args.interval,
+            cap=args.cap,
+        )
         if result:
+            cap_label = "25% cap" if args.cap else "no cap"
             print(f"\n{'='*50}")
-            print("BACKTEST SUMMARY")
+            print(f"BACKTEST SUMMARY  ({args.years}y, {args.interval}, {cap_label})")
             print(f"{'='*50}")
             for k, v in result.items():
                 print(f"{k:<20} {v}")
