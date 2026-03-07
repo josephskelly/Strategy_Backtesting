@@ -16,7 +16,7 @@
 ## Directory Structure
 
 ```
-Trading_Backtesting/
+Strategy_Backtesting/
 ├── CLAUDE.md                                    # This file (AI assistant guide)
 ├── README.md                                    # Project overview
 ├── TESTING.md                                   # Test procedures
@@ -25,15 +25,18 @@ Trading_Backtesting/
 ├── POSITION_SIZING_CAPITAL_GUIDE.md             # Complete sizing guide
 ├── 10K_POSITION_SIZING_ANALYSIS.md              # $10K starting capital analysis
 │
-├── MAIN BACKTESTING ENGINES:
-├── backtest_daily_rebalance_no_cap.py           # Core backtester (no 25% cap)
-├── backtest_daily_rebalance.py                  # With 25% margin cap
+├── PRIMARY SCRIPT:
+├── backtest_mean_regression.py                  # CLI runner: any ticker or all ETFs
+├── proshares_leveraged_etfs.csv                 # 51 ProShares leveraged ETF tickers
+│
+├── BACKTESTING ENGINE:
+├── backtest_daily_rebalance_no_cap.py           # Core backtester (supports margin_cap param)
+├── backtest_daily_rebalance.py                  # Legacy backtester with hardcoded 25% cap
+│
+├── ADDITIONAL ANALYSIS SCRIPTS:
 ├── backtest_leveraged_30year.py                 # 30-year comparison
 ├── backtest_leverage_comparison.py              # Multi-strategy comparison
-│
-├── POSITION SIZING ANALYSIS:
 ├── analyze_position_sizing.py                   # Position sizing analysis tool
-├── test_10k_100_per_percent.py                  # $10K with $100/1% move test
 ├── backtest_annual_comparison.py                # Annual return comparisons
 │
 ├── SUPPORTING SCRIPTS:
@@ -83,11 +86,11 @@ Located in: `backtest_daily_rebalance_no_cap.py`
 from backtest_daily_rebalance_no_cap import DailyRebalanceBacktesterNoCap
 
 backtester = DailyRebalanceBacktesterNoCap(
-    prices_df=sector_closes,        # DataFrame with OHLCV data
+    prices_df=prices_df,            # DataFrame: index=dates, columns=tickers
     initial_capital=10000,          # Starting cash
-    trade_amount_per_percent=165,   # $ per 1% move signal
-    lookback_period=20,             # 20-day rolling average
-    margin_cap=None,                # None = no cap, 0.25 = 25% cap
+    nlv_proportional=True,          # Scale position size with portfolio growth
+    nlv_pct_per_percent=1.65,       # 1.65% of NLV per 1% daily move
+    margin_cap=None,                # None = no cap, 0.25 = 25% per-trade cap
 )
 
 results = backtester.run()
@@ -120,18 +123,22 @@ results.snapshots              # List of daily portfolio snapshots
 
 ### Running a New Backtest
 
-1. **With specific position sizing**:
+1. **Single ticker** (primary entry point):
 ```bash
-python test_10k_100_per_percent.py        # $10K + $100/1% sizing
-python backtest_leveraged_30year.py       # General comparison
+python backtest_mean_regression.py TQQQ                          # 30y daily, default sizing
+python backtest_mean_regression.py TQQQ --years 10              # last 10 years
+python backtest_mean_regression.py TQQQ --interval 1wk          # weekly bars
+python backtest_mean_regression.py TQQQ --cap                   # enable 25% margin cap
+python backtest_mean_regression.py TQQQ --nlv-pct 2.0          # custom sizing
 ```
 
-2. **Analyze position sizing options**:
+2. **All 51 ProShares ETFs** (ranked comparison):
 ```bash
-python analyze_position_sizing.py         # Compare multiple sizes
+python backtest_mean_regression.py --all
+python backtest_mean_regression.py --all --nlv-pct 1.65 --years 5
 ```
 
-3. **Get annual breakdown**:
+3. **Annual breakdown**:
 ```bash
 python backtest_annual_comparison.py      # Year-by-year results
 ```
@@ -141,21 +148,22 @@ python backtest_annual_comparison.py      # Year-by-year results
 Template:
 ```python
 import pandas as pd
+from backtest_mean_regression import fetch_closes
 from backtest_daily_rebalance_no_cap import DailyRebalanceBacktesterNoCap
 
-# Fetch data
-sector_closes = fetch_sector_closes(range_="30y")
+# Fetch data for any ticker
+prices_df = fetch_closes("TQQQ", range_="10y", interval="1d")
 
-# Run backtest with specific parameters
+# Run backtest
 backtester = DailyRebalanceBacktesterNoCap(
-    prices_df=sector_closes,
-    initial_capital=YOUR_CAPITAL,
-    trade_amount_per_percent=YOUR_SIZE,
-    margin_cap=None,  # Or 0.25 for cap
+    prices_df=prices_df,
+    initial_capital=10_000,
+    nlv_proportional=True,
+    nlv_pct_per_percent=1.65,   # 1.65% of NLV per 1% move
+    margin_cap=None,             # or 0.25 for 25% cap
 )
 results = backtester.run()
 
-# Display results
 print(f"Return: {results.total_return:.2f}%")
 print(f"Final: ${results.final_value:,.2f}")
 print(f"Max DD: {results.max_drawdown:.2f}%")
@@ -234,7 +242,7 @@ Data sourced from Yahoo Finance API via `_yahoo_chart()` function.
 
 ## Git Workflow
 
-### Branch: `claude/backtest-stddev-trading-4wIY0`
+### Branch: `claude/extract-etf-data-csv-i6lLh`
 
 All development happens on this feature branch.
 
@@ -269,10 +277,10 @@ All development happens on this feature branch.
 
 ```bash
 # Always use -u flag for new branches
-git push -u origin claude/backtest-stddev-trading-4wIY0
+git push -u origin claude/extract-etf-data-csv-i6lLh
 
 # Regular pushes
-git push origin claude/backtest-stddev-trading-4wIY0
+git push origin claude/extract-etf-data-csv-i6lLh
 ```
 
 ## Testing & Validation
