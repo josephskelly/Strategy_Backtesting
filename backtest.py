@@ -1,140 +1,298 @@
 """
-Main Mean Reversion Portfolio Backtester
+Backtester — single entry point
 
-Run a single backtest on 2-year (or custom range) historical data.
+Run a mean-reversion backtest on any ticker (or all ProShares leveraged ETFs),
+with a pluggable indicator module for signal generation.
 
 Usage:
-    python backtest.py                    # Default: 2 year backtest
-    python backtest.py --range 1y         # 1 year backtest
-    python backtest.py --range 5y         # 5 year backtest
+    python backtest.py TQQQ
+    python backtest.py TQQQ --indicator indicators/zscore.py
+    python backtest.py TQQQ --indicator indicators/daily_return.py --nlv-pct 2.0 --cap
+    python backtest.py TQQQ --indicator indicators/zscore.py --z-threshold 1.5
+    python backtest.py TQQQ --years 10 --interval 1wk
+    python backtest.py --all
+    python backtest.py --all --indicator indicators/zscore.py --years 5
+
+Custom indicator:
+    Any .py file that exports `class Indicator` and optionally `def add_args(parser)`.
+    See indicators/daily_return.py for a worked example.
 """
 
+import argparse
+import importlib.util
 import os
+import sys
+import time
+import types
 
 import pandas as pd
-import argparse
-from backtest_engine import PortfolioStddevBacktester
-from sector_etfs import fetch_sector_closes, SECTOR_ETFS
+import requests
+
+from engine import BacktestEngine
 
 OUTPUT_DIR = "output"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
+DEFAULT_INDICATOR = "indicators/daily_return.py"
+DEFAULT_YEARS = 30
+DEFAULT_INTERVAL = "1d"
+INITIAL_CAPITAL = 10_000
+ETF_CSV = "proshares_leveraged_etfs.csv"
 
-def run_backtest(range_: str = "2y"):
-    """Run a single portfolio backtest."""
-    print("=" * 100)
-    print("PORTFOLIO MEAN REVERSION BACKTEST")
-    print("=" * 100)
-    print()
-    print("Configuration:")
-    print(f"  Initial Capital:           $10,000")
-    print(f"  Allocation Method:         Dynamic Shared Pool")
-    print(f"  Max Per Sector:            30% ($3,000)")
-    print(f"  Lookback Period:           20 days")
-    print(f"  Z-Score Threshold:         1.0 (buy at -1.0, sell at +1.0)")
-    print(f"  Position Sizing:           Linear (0-100% of available capital)")
-    print()
 
-    print(f"Fetching sector ETF prices for range={range_}...")
-    closes = fetch_sector_closes(range_=range_)
+# ---------------------------------------------------------------------------
+# Indicator plugin loader
+# ---------------------------------------------------------------------------
 
-    print("Running backtest...")
-    backtester = PortfolioStddevBacktester(
-        prices_df=closes,
-        initial_capital=10000,
-        lookback_period=20,
-        z_threshold=1.0,
-        max_sector_allocation=0.30,
+def _load_indicator_module(path: str) -> types.ModuleType:
+    """Load an indicator .py file and return the module."""
+    if not os.path.isfile(path):
+        print(f"Error: indicator file not found: {path}")
+        sys.exit(1)
+    spec = importlib.util.spec_from_file_location("_indicator", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    if not hasattr(mod, "Indicator"):
+        print(f"Error: {path} must export a class named 'Indicator'.")
+        sys.exit(1)
+    return mod
+
+
+# ---------------------------------------------------------------------------
+# Data fetching
+# ---------------------------------------------------------------------------
+
+def _yahoo_chart(ticker: str, range_: str = "30y", interval: str = "1d") -> list[dict]:
+    """Fetch OHLCV data from Yahoo Finance's chart API."""
+    url = (
+        f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
+        f"?range={range_}&interval={interval}"
     )
-    results = backtester.run()
+    resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
+    resp.raise_for_status()
+    data = resp.json()
+    result = data["chart"]["result"][0]
+    timestamps = result["timestamp"]
+    closes = result["indicators"]["quote"][0]["close"]
+    return [
+        {"date": pd.Timestamp(ts, unit="s").normalize(), "close": close}
+        for ts, close in zip(timestamps, closes)
+        if close is not None
+    ]
 
-    # Display portfolio-level results
-    print("\n" + "=" * 100)
-    print("PORTFOLIO PERFORMANCE")
-    print("=" * 100)
-    print(f"\nFinal Portfolio Value:       ${results.final_value:>12,.2f}")
-    print(f"Total P&L:                   ${results.final_pnl:>12,.2f}")
-    print(f"Total Return:                {results.total_return:>12.2f}%")
-    print(f"Max Drawdown:                {results.max_drawdown:>12.2f}%")
-    print(f"Sharpe Ratio (Annualized):   {results.sharpe_ratio:>12.2f}")
-    print(f"\nTotal Trades:                {results.num_trades:>12.0f}")
-    print(f"Avg Capital Deployed:        {results.avg_invested_pct:>12.2f}%")
-    print(f"Avg Cash Sitting Idle:       {results.avg_cash_pct:>12.2f}%")
 
-    # Display sector performance
-    print("\n" + "=" * 100)
-    print("SECTOR PERFORMANCE")
-    print("=" * 100)
+def fetch_closes(ticker: str, range_: str = "30y", interval: str = "1d") -> pd.DataFrame:
+    """Return a single-column DataFrame of closing prices for *ticker*."""
+    rows = _yahoo_chart(ticker, range_=range_, interval=interval)
+    df = pd.DataFrame(rows).set_index("date")
+    df.columns = [ticker]
+    return df.sort_index()
 
-    sector_df = []
-    for ticker in backtester.tickers:
-        perf = results.sector_performance[ticker]
-        sector_df.append({
-            "Ticker": ticker,
-            "Sector": SECTOR_ETFS.get(ticker, "Unknown"),
-            "Trades": perf["num_trades"],
-            "P&L": perf["pnl"],
-            "Return %": perf["return_pct"],
-            "Wins": perf["num_wins"],
-            "Win Rate %": perf["win_rate"],
-        })
 
-    sector_results = pd.DataFrame(sector_df)
-    sector_results = sector_results.sort_values("Return %", ascending=False)
+# ---------------------------------------------------------------------------
+# Single-ticker run
+# ---------------------------------------------------------------------------
 
-    print(sector_results.to_string(index=False))
+def run_single(
+    ticker: str,
+    indicator,
+    years: int = DEFAULT_YEARS,
+    interval: str = DEFAULT_INTERVAL,
+) -> dict | None:
+    """
+    Fetch data, run the backtest, save weekly CSV, return a summary dict.
+    Returns None on data-fetch failure.
+    """
+    ticker = ticker.upper()
+    range_ = f"{years}y"
+    print(f"\nFetching {ticker} ({range_}, {interval})...")
+    try:
+        prices_df = fetch_closes(ticker, range_=range_, interval=interval)
+    except Exception as e:
+        print(f"  Warning: could not fetch {ticker}: {e}")
+        return None
 
-    # Summary statistics
-    print("\n" + "=" * 100)
-    print("SECTOR SUMMARY")
-    print("=" * 100)
+    bar_label = "bars" if interval != "1d" else "trading days"
+    print(
+        f"  {ticker}: {len(prices_df)} {bar_label} "
+        f"({prices_df.index[0].date()} to {prices_df.index[-1].date()})"
+    )
 
-    print(f"\nTop Performer:               {sector_results.iloc[0]['Ticker']} ({sector_results.iloc[0]['Return %']:.2f}%)")
-    print(f"Worst Performer:             {sector_results.iloc[-1]['Ticker']} ({sector_results.iloc[-1]['Return %']:.2f}%)")
-    print(f"Average Sector Return:       {sector_results['Return %'].mean():.2f}%")
-    print(f"Sectors with Positive Return: {len(sector_results[sector_results['Return %'] > 0])}/11")
-    print(f"Total Wins:                  {sector_results['Wins'].sum():.0f} trades")
-    print(f"Avg Win Rate:                {sector_results['Win Rate %'].mean():.2f}%")
+    engine = BacktestEngine(
+        prices_df=prices_df,
+        indicator=indicator,
+        initial_capital=INITIAL_CAPITAL,
+    )
+    results = engine.run()
 
-    # Save results
-    output_file = f"{OUTPUT_DIR}/backtest_results.csv"
-    sector_results.to_csv(output_file, index=False)
-    print(f"\n✓ Results saved to {output_file}")
+    # Save weekly snapshot CSV
+    daily_records = [
+        {
+            "date": s.date,
+            "positions_value": s.invested_value,
+            "cash": s.cash,
+            "net_liq": s.total_value,
+        }
+        for s in results.snapshots
+    ]
+    daily_df = pd.DataFrame(daily_records).set_index("date")
+    weekly_df = daily_df.resample("W-FRI").last().dropna().round(2)
+    out_path = f"{OUTPUT_DIR}/{ticker.lower()}_weekly_balances.csv"
+    weekly_df.to_csv(out_path)
+    print(f"  Saved {len(weekly_df)} weekly rows → {out_path}")
 
-    # Capital efficiency summary
-    print("\n" + "=" * 100)
-    print("CAPITAL EFFICIENCY")
-    print("=" * 100)
+    print(
+        f"  Return: {results.total_return:.2f}%  |  "
+        f"Final: ${results.final_value:,.2f}  |  "
+        f"Max DD: {results.max_drawdown:.2f}%  |  "
+        f"Sharpe: {results.sharpe_ratio:.3f}"
+    )
 
-    if results.snapshots:
-        max_cash = max([s.cash for s in results.snapshots])
-        min_cash = min([s.cash for s in results.snapshots])
-        max_deployed = max([
-            (s.total_value - s.cash) / s.total_value * 100
-            if s.total_value > 0 else 0
-            for s in results.snapshots
-        ])
+    return {
+        "Ticker": ticker,
+        "Return %": round(results.total_return, 2),
+        "Final Value $": round(results.final_value, 2),
+        "Max Drawdown %": round(results.max_drawdown, 2),
+        "Sharpe": round(results.sharpe_ratio, 3),
+        "Trades": results.num_trades,
+        "Start Date": prices_df.index[0].date().isoformat(),
+        "End Date": prices_df.index[-1].date().isoformat(),
+        "Years": round(len(prices_df) / 252, 1),
+    }
 
-        print(f"\nAverage Capital Deployed:    {results.avg_invested_pct:.2f}%")
-        print(f"Peak Capital Deployed:       {max_deployed:.2f}%")
-        print(f"Max Cash Available:          ${max_cash:,.2f}")
-        print(f"Min Cash Available:          ${min_cash:,.2f}")
 
-    print()
+# ---------------------------------------------------------------------------
+# All-ETFs run
+# ---------------------------------------------------------------------------
 
-    return results, backtester
+def run_all(
+    indicator,
+    years: int = DEFAULT_YEARS,
+    interval: str = DEFAULT_INTERVAL,
+) -> None:
+    """Run backtest for every ETF listed in proshares_leveraged_etfs.csv."""
+    try:
+        etf_df = pd.read_csv(ETF_CSV)
+    except FileNotFoundError:
+        print(f"Error: {ETF_CSV} not found.")
+        sys.exit(1)
+
+    tickers = list(etf_df["Ticker"])
+    categories = dict(zip(etf_df["Ticker"], etf_df.get("Category", [""] * len(tickers))))
+
+    print("=" * 60)
+    print(f"Running {len(tickers)} ETFs  |  {years}y  |  {interval}")
+    print("=" * 60)
+
+    summaries = []
+    for ticker in tickers:
+        result = run_single(ticker, indicator=indicator, years=years, interval=interval)
+        if result:
+            result["Category"] = categories.get(ticker, "")
+            summaries.append(result)
+        time.sleep(0.3)
+
+    if not summaries:
+        print("\nNo results.")
+        return
+
+    summary_df = (
+        pd.DataFrame(summaries)
+        .sort_values("Return %", ascending=False)
+        .reset_index(drop=True)
+    )
+    summary_df.insert(0, "Rank", range(1, len(summary_df) + 1))
+
+    out_csv = f"{OUTPUT_DIR}/etf_weekly_comparison.csv"
+    summary_df.to_csv(out_csv, index=False)
+
+    print("\n\n" + "=" * 90)
+    print("ALL ETFs — ranked by Return %")
+    print("=" * 90)
+    cols = ["Rank", "Ticker", "Category", "Return %", "Final Value $",
+            "Max Drawdown %", "Sharpe", "Trades", "Years"]
+    print(summary_df[cols].to_string(index=False))
+    print(f"\nFull results → {out_csv}")
+    print(f"Best:  {summary_df.iloc[0]['Ticker']}  {summary_df.iloc[0]['Return %']:.2f}%")
+    print(f"Worst: {summary_df.iloc[-1]['Ticker']}  {summary_df.iloc[-1]['Return %']:.2f}%")
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+def main() -> None:
+    # Phase 1: discover which indicator to load (before full arg parse).
+    pre = argparse.ArgumentParser(add_help=False)
+    pre.add_argument("--indicator", default=DEFAULT_INDICATOR)
+    pre_args, _ = pre.parse_known_args()
+
+    indicator_module = _load_indicator_module(pre_args.indicator)
+
+    # Phase 2: build the full parser, letting the indicator add its own flags.
+    parser = argparse.ArgumentParser(
+        description="Mean-reversion backtester with pluggable indicator.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument(
+        "ticker",
+        nargs="?",
+        help="Ticker to backtest (e.g. TQQQ). Omit when using --all.",
+    )
+    parser.add_argument(
+        "--all",
+        action="store_true",
+        help=f"Run all ETFs listed in {ETF_CSV}.",
+    )
+    parser.add_argument(
+        "--indicator",
+        default=DEFAULT_INDICATOR,
+        metavar="PATH",
+        help="Path to a .py indicator module.",
+    )
+    parser.add_argument(
+        "--years",
+        type=int,
+        default=DEFAULT_YEARS,
+        metavar="N",
+        help="Years of history to fetch from Yahoo Finance.",
+    )
+    parser.add_argument(
+        "--interval",
+        choices=["1d", "1wk"],
+        default=DEFAULT_INTERVAL,
+        help="Bar interval: daily (1d) or weekly (1wk).",
+    )
+
+    # Let the indicator register its own flags
+    if hasattr(indicator_module, "add_args"):
+        indicator_module.add_args(parser)
+
+    args = parser.parse_args()
+
+    # Instantiate indicator with all parsed args as kwargs
+    # (argparse uses underscores; pass them all and let the indicator pick what it needs)
+    indicator = indicator_module.Indicator(**vars(args))
+
+    if args.all:
+        run_all(indicator=indicator, years=args.years, interval=args.interval)
+    elif args.ticker:
+        result = run_single(
+            args.ticker,
+            indicator=indicator,
+            years=args.years,
+            interval=args.interval,
+        )
+        if result:
+            print(f"\n{'=' * 50}")
+            print(f"SUMMARY  ({args.years}y, {args.interval})")
+            print(f"{'=' * 50}")
+            for k, v in result.items():
+                print(f"{k:<20} {v}")
+    else:
+        parser.print_help()
+        sys.exit(1)
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Mean Reversion Portfolio Backtester"
-    )
-    parser.add_argument(
-        "--range",
-        type=str,
-        default="2y",
-        help="Date range for backtest (e.g., '1y', '2y', '5y')",
-    )
-
-    args = parser.parse_args()
-    results, backtester = run_backtest(range_=args.range)
+    main()
