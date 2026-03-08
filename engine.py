@@ -257,32 +257,50 @@ class BacktestEngine:
         avg_invested_pct = float(np.mean(invested_pcts)) * 100
         avg_cash_pct = 100 - avg_invested_pct
 
-        # Sector performance
+        # Sector performance (weighted-average cost basis)
         sector_performance: dict[str, dict] = {}
         for ticker in self.tickers:
             trades = self.sector_trades[ticker]
-            buys = [t for t in trades if t.action == "BUY"]
-            sells = [t for t in trades if t.action == "SELL"]
+            if not trades:
+                sector_performance[ticker] = {
+                    "num_trades": 0, "pnl": 0, "return_pct": 0,
+                    "num_wins": 0, "win_rate": 0,
+                }
+                continue
 
-            pnl = sum(
-                (sell.price - buy.price) * buy.quantity
-                for buy, sell in zip(buys, sells)
-            )
+            avg_cost = 0.0
+            shares_held = 0.0
+            realized_pnl = 0.0
+            num_sells = 0
+            num_wins = 0
 
-            # Unrealized P&L on open position
-            if self.positions[ticker] > 0.001 and buys:
+            for t in trades:
+                if t.action == "BUY":
+                    total_cost = avg_cost * shares_held + t.price * t.quantity
+                    shares_held += t.quantity
+                    avg_cost = total_cost / shares_held if shares_held > 0 else 0.0
+                elif t.action == "SELL":
+                    pnl = (t.price - avg_cost) * t.quantity
+                    realized_pnl += pnl
+                    shares_held -= t.quantity
+                    num_sells += 1
+                    if pnl > 0:
+                        num_wins += 1
+
+            # Unrealized P&L on remaining position
+            unrealized_pnl = 0.0
+            if shares_held > 0.001:
                 last_price = float(self.prices_df[ticker].iloc[-1])
-                avg_buy = sum(t.value for t in buys) / sum(t.quantity for t in buys)
-                pnl += (last_price - avg_buy) * self.positions[ticker]
+                unrealized_pnl = (last_price - avg_cost) * shares_held
 
-            num_wins = sum(1 for b, s in zip(buys, sells) if s.price > b.price)
+            total_pnl = realized_pnl + unrealized_pnl
 
             sector_performance[ticker] = {
-                "num_trades": len(buys),
-                "pnl": pnl,
-                "return_pct": pnl / self.initial_capital * 100 if self.initial_capital else 0,
+                "num_trades": len(trades),
+                "pnl": total_pnl,
+                "return_pct": total_pnl / self.initial_capital * 100 if self.initial_capital else 0,
                 "num_wins": num_wins,
-                "win_rate": num_wins / len(buys) * 100 if buys else 0,
+                "win_rate": num_wins / num_sells * 100 if num_sells else 0,
             }
 
         return BacktestResults(

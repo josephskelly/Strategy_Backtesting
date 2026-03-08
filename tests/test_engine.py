@@ -358,6 +358,64 @@ class TestComputeResults:
         perf = results.sector_performance["A"]
         assert perf["num_wins"] == 1
         assert perf["win_rate"] == pytest.approx(100.0)
+        assert perf["num_trades"] == 2  # 1 buy + 1 sell
+
+    def test_sector_pnl_weighted_avg_cost(self):
+        """Multiple buys at different prices, then one sell — P&L uses WAC."""
+        # Buy 50 shares at 100 ($5000), buy 50 shares at 80 ($4000)
+        # Avg cost = (5000 + 4000) / 100 = 90
+        # Sell 50 shares at 110 → pnl = (110 - 90) * 50 = $1000
+        prices = make_prices({"A": [100.0, 80.0, 110.0]})
+        signals = [("BUY", 5_000.0), ("BUY", 4_000.0), ("SELL", 5_500.0)]
+        results = BacktestEngine(
+            prices, ScriptedIndicator(signals), initial_capital=10_000
+        ).run()
+        perf = results.sector_performance["A"]
+        # Realized: (110 - 90) * 50 = 1000
+        # Unrealized: remaining 50 shares at price 110, avg_cost 90 → (110-90)*50 = 1000
+        assert perf["pnl"] == pytest.approx(2_000.0)
+        assert perf["num_wins"] == 1
+
+    def test_sector_pnl_unequal_buy_sell_counts(self):
+        """More buys than sells should not lose data (old zip bug)."""
+        # 3 buys, 1 sell — old code would only pair first buy with first sell
+        prices = make_prices({"A": [100.0, 95.0, 90.0, 110.0]})
+        signals = [("BUY", 1_000.0), ("BUY", 950.0), ("BUY", 900.0), ("SELL", 3_000.0)]
+        results = BacktestEngine(
+            prices, ScriptedIndicator(signals), initial_capital=10_000
+        ).run()
+        perf = results.sector_performance["A"]
+        assert perf["num_trades"] == 4  # 3 buys + 1 sell
+        # avg cost = (1000 + 950 + 900) / (10 + 10 + 10) = 2850/30 = 95
+        # sell 3000/110 ≈ 27.27 shares at 110, pnl = (110 - 95) * 27.27 ≈ 409.09
+        assert perf["pnl"] > 0
+        assert perf["num_wins"] == 1
+
+    def test_sector_win_rate_mixed(self):
+        """Some winning sells, some losing — verify correct ratio."""
+        # Buy at 100, sell at 110 (win), buy at 120, sell at 100 (loss)
+        prices = make_prices({"A": [100.0, 110.0, 120.0, 100.0]})
+        signals = [("BUY", 1_000.0), ("SELL", 1_100.0), ("BUY", 1_200.0), ("SELL", 1_000.0)]
+        results = BacktestEngine(
+            prices, ScriptedIndicator(signals), initial_capital=10_000
+        ).run()
+        perf = results.sector_performance["A"]
+        assert perf["num_wins"] == 1
+        # 2 sells total → win_rate = 1/2 * 100 = 50%
+        assert perf["win_rate"] == pytest.approx(50.0)
+
+    def test_sector_unrealized_pnl(self):
+        """Buy and hold to end — unrealized P&L should be included."""
+        prices = make_prices({"A": [100.0, 120.0]})
+        signals = [("BUY", 5_000.0), ("HOLD", 0.0)]
+        results = BacktestEngine(
+            prices, ScriptedIndicator(signals), initial_capital=10_000
+        ).run()
+        perf = results.sector_performance["A"]
+        # 50 shares bought at 100, final price 120
+        # unrealized = (120 - 100) * 50 = 1000
+        assert perf["pnl"] == pytest.approx(1_000.0)
+        assert perf["num_wins"] == 0  # no sells occurred
 
     def test_avg_invested_and_cash_pct_sum_to_100(self):
         prices = make_prices({"A": [100.0, 98.0, 102.0]})
