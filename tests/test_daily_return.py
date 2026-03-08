@@ -35,7 +35,7 @@ def _signal(indicator, current, prev, position=0.0, cash=10_000.0, nlv=10_000.0)
 class TestInit:
     def test_default_nlv_pct(self):
         ind = Indicator()
-        assert ind.nlv_pct_per_percent == pytest.approx(1.65)
+        assert ind.nlv_pct_per_percent == pytest.approx(4.5)
 
     def test_default_no_cap(self):
         ind = Indicator()

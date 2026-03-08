@@ -8,7 +8,7 @@ Mean-reversion strategy based on each day's price move:
 Trade amount is either a fixed $ per 1% move, or a % of current NLV.
 
 CLI flags added by this indicator:
-  --nlv-pct PCT     % of NLV to trade per 1% daily move (default: 1.65)
+  --nlv-pct PCT     % of NLV to trade per 1% daily move (default: 4.5)
   --cap             cap each buy to 25% of current cash
 
 Example usage (via backtest.py):
@@ -34,9 +34,9 @@ def add_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--nlv-pct",
         type=float,
-        default=1.65,
+        default=4.5,
         metavar="PCT",
-        help="Percent of NLV to trade per 1%% daily move (default: 1.65).",
+        help="Percent of NLV to trade per 1%% daily move (default: 4.5).",
     )
     parser.add_argument(
         "--cap",
@@ -49,7 +49,7 @@ class Indicator:
     """Buy dips, sell rips — sized as a fraction of NLV per 1%% daily move."""
 
     def __init__(self, **kwargs):
-        self.nlv_pct_per_percent: float = kwargs.get("nlv_pct", 1.65)
+        self.nlv_pct_per_percent: float = kwargs.get("nlv_pct", 4.5)
         self.margin_cap: float | None = DEFAULT_MARGIN_CAP if kwargs.get("cap", False) else None
 
     def signal(
