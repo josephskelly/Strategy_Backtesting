@@ -1,190 +1,209 @@
 # Trading Backtesting System
 
-Mean reversion portfolio backtester with dynamic shared capital allocation across 11 US sector ETFs.
+Mean-reversion backtester for ProShares leveraged ETFs with a pluggable indicator system.
 
-## Strategy Overview
-
-**Mean Reversion with Dynamic Capital Allocation:**
-- **Capital:** Single $10,000 portfolio shared across all sectors
-- **Max per Sector:** 30% ($3,000) to prevent concentration
-- **Buy Signal:** Z-score ≤ -1.0 (price 1+ std dev below 20-day mean)
-- **Sell Signal:** Z-score ≥ +1.0 (price 1+ std dev above 20-day mean)
-- **Position Sizing:** Linear scaling (0-100% of available capital based on z-score)
-
-## Performance (2-Year Backtest)
-
-- **Final Value:** $13,116.09
-- **Total Return:** 31.16%
-- **Max Drawdown:** -17.36%
-- **Sharpe Ratio:** 1.00
-- **Total Trades:** 173
-- **Capital Deployed:** 67.86% avg
-
-## Directory Structure
+## Architecture
 
 ```
-trading_backtesting/
-├── backtest_engine.py              # Core backtester class
-├── backtest.py                     # Main backtest runner
-├── backtest_random_periods.py      # Random period testing
-├── sector_etfs.py                  # Sector ETF data fetcher
-└── README.md                       # This file
+backtest.py          ← single CLI entry point
+engine.py            ← BacktestEngine + dataclasses (portfolio loop, results)
+indicators/
+  daily_return.py    ← buy dips / sell rips based on daily % move  (default)
+  zscore.py          ← rolling z-score mean-reversion
+proshares_leveraged_etfs.csv   ← 51 ProShares leveraged ETF tickers
+output/              ← generated CSV files
+_archive/            ← old scripts
 ```
 
-## Usage
-
-### Single Backtest
-
-Run a standard 2-year backtest:
+## Quick Start
 
 ```bash
-python backtest.py
+# Single ticker, 30-year daily backtest (default indicator: daily_return)
+python backtest.py TQQQ
+
+# Custom sizing
+python backtest.py TQQQ --nlv-pct 2.0
+
+# Enable 25% per-trade margin cap
+python backtest.py TQQQ --cap
+
+# Switch to z-score indicator
+python backtest.py TQQQ --indicator indicators/zscore.py
+
+# Use your own custom indicator
+python backtest.py TQQQ --indicator path/to/my_indicator.py
+
+# Last 10 years, weekly bars
+python backtest.py TQQQ --years 10 --interval 1wk
+
+# Run all 51 ProShares leveraged ETFs and rank by return
+python backtest.py --all
+python backtest.py --all --nlv-pct 1.65 --years 20
 ```
 
-Custom date range:
+## CLI Reference
 
-```bash
-python backtest.py --range 1y   # 1 year
-python backtest.py --range 5y   # 5 years
-```
+### Base flags (always available)
 
-### Random Period Testing
+| Argument | Type | Default | Description |
+|---|---|---|---|
+| `ticker` | positional | — | Ticker to backtest (e.g. `TQQQ`, `URTY`) |
+| `--all` | flag | off | Run all ETFs in `proshares_leveraged_etfs.csv` |
+| `--indicator PATH` | str | `indicators/daily_return.py` | Path to indicator `.py` module |
+| `--years N` | int | `30` | Years of history to fetch from Yahoo Finance |
+| `--interval` | `1d` \| `1wk` | `1d` | Bar interval (daily or weekly) |
 
-Test across 10 random 2-year periods:
+### `indicators/daily_return.py` flags
 
-```bash
-python backtest_random_periods.py
-```
+| Argument | Type | Default | Description |
+|---|---|---|---|
+| `--nlv-pct PCT` | float | `1.65` | % of NLV to trade per 1% daily move |
+| `--cap` | flag | off | Cap each buy to 25% of current cash |
 
-Custom number of periods:
+### `indicators/zscore.py` flags
 
-```bash
-python backtest_random_periods.py --periods 20
-```
+| Argument | Type | Default | Description |
+|---|---|---|---|
+| `--lookback N` | int | `20` | Rolling window (bars) for mean/std |
+| `--z-threshold F` | float | `1.0` | Z-score magnitude to trigger buy/sell |
+| `--max-allocation F` | float | `0.30` | Max fraction of NLV per sector |
 
 ## Output Files
 
-- `backtest_results.csv` - Sector-by-sector results from single backtest
-- `mean_reversion_random_periods.csv` - Strategy results across random periods
-- `buyhold_random_periods.csv` - Buy-and-hold benchmark results
-- `comparison_random_periods.csv` - Side-by-side comparison
+| File | Description |
+|---|---|
+| `output/{ticker}_weekly_balances.csv` | Weekly portfolio snapshot: positions, cash, net liquidation value |
+| `output/etf_weekly_comparison.csv` | Ranked comparison across all ETFs (when using `--all`) |
 
-## Key Metrics Explained
-
-- **Return %:** Total portfolio return including P&L
-- **Max Drawdown:** Largest peak-to-trough decline (%)
-- **Sharpe Ratio:** Risk-adjusted return (annualized, 252 trading days)
-- **Win Rate %:** Percentage of trades that were profitable
-- **Capital Deployed:** Average % of portfolio invested (vs idle cash)
-
-## Module Reference
-
-### `backtest_engine.py`
-
-Core backtesting engine with the `PortfolioStddevBacktester` class:
+## Engine API
 
 ```python
-from backtest_engine import PortfolioStddevBacktester
-from sector_etfs import fetch_sector_closes
+from engine import BacktestEngine
+from indicators.daily_return import Indicator
 
-# Fetch data
-closes = fetch_sector_closes(range_="2y")
+indicator = Indicator(nlv_pct=1.65, cap=False)
 
-# Run backtest
-backtester = PortfolioStddevBacktester(
-    prices_df=closes,
-    initial_capital=10000,
-    lookback_period=20,
-    z_threshold=1.0,
-    max_sector_allocation=0.30,
+engine = BacktestEngine(
+    prices_df=prices_df,      # DataFrame: index=dates, columns=tickers
+    indicator=indicator,
+    initial_capital=10_000,
 )
-results = backtester.run()
+results = engine.run()
 
-# Results available in results.BacktestResults
-print(f"Return: {results.total_return:.2f}%")
-print(f"Drawdown: {results.max_drawdown:.2f}%")
+print(f"Return:  {results.total_return:.2f}%")
+print(f"Final:   ${results.final_value:,.2f}")
+print(f"Max DD:  {results.max_drawdown:.2f}%")
+print(f"Sharpe:  {results.sharpe_ratio:.3f}")
+print(f"Trades:  {results.num_trades}")
 ```
 
-### `sector_etfs.py`
-
-Fetches historical sector ETF prices:
+### BacktestResults attributes
 
 ```python
-from sector_etfs import fetch_sector_closes, SECTOR_ETFS
-
-# Fetch prices
-closes = fetch_sector_closes(range_="2y")  # Returns DataFrame
-
-# Available sectors
-print(SECTOR_ETFS)  # Dict of ticker -> sector name
+results.total_return        # Total return %
+results.final_value         # Final portfolio value $
+results.final_pnl           # Profit/Loss $
+results.max_drawdown        # Max drawdown %
+results.sharpe_ratio        # Risk-adjusted return (annualized, √252)
+results.num_trades          # Total trades executed
+results.avg_invested_pct    # Average % of portfolio deployed
+results.avg_cash_pct        # Average % held as cash
+results.min_cash            # Minimum cash balance reached $
+results.went_negative_cash  # Did cash ever go negative?
+results.sector_performance  # {ticker: {num_trades, pnl, return_pct, num_wins, win_rate}}
+results.snapshots           # List of daily PortfolioSnapshot objects
 ```
 
-## Strategy Comparison
+## Writing a Custom Indicator
 
-Tested against buy-and-hold across 10 random 2-year periods (2021-2026):
+Create any `.py` file with:
 
-| Metric | Mean Reversion | Buy-and-Hold |
-|--------|---|---|
-| Avg Return | 20.18% | 21.97% |
-| Max Drawdown | -16.68% | -27.37% |
-| Sharpe Ratio | 0.67 | 0.00 |
-| Win Rate vs B&H | 5/10 periods | — |
+```python
+# my_indicator.py
 
-**Key Insight:** Mean reversion provides superior downside protection (44% better drawdown) while staying competitive on returns (only -1.79% below B&H average).
+def add_args(parser) -> None:
+    """Register indicator-specific CLI flags (optional)."""
+    parser.add_argument("--my-param", type=float, default=1.0)
 
-## Sector Coverage
 
-11 US sector ETFs tracked:
+class Indicator:
+    def __init__(self, **kwargs):
+        self.my_param = kwargs.get("my_param", 1.0)
 
-- VGT (Technology)
-- VHT (Health Care)
-- VFH (Financials)
-- VDC (Consumer Staples)
-- VCR (Consumer Discretionary)
-- VDE (Energy)
-- VNQ (Real Estate)
-- VIS (Industrials)
-- VOX (Communication Services)
-- VAW (Materials)
-- VPU (Utilities)
+    def signal(
+        self,
+        ticker: str,
+        date,
+        current_price: float,
+        prev_price: float | None,
+        prices_history,          # pd.Series of all closes up to today
+        position: float,         # shares currently held
+        cash: float,
+        nlv: float,              # net liquidation value
+    ) -> tuple[str, float]:
+        """Return ('BUY'/'SELL'/'HOLD', trade_value_$)."""
+        ...
+```
+
+Run it with:
+```bash
+python backtest.py TQQQ --indicator my_indicator.py --my-param 2.0
+```
+
+## Built-in Indicators
+
+### `indicators/daily_return.py` (default)
+
+Buys when a ticker drops and sells when it rises, proportional to the daily move:
+
+- **Buy signal:** daily return < 0 → buy `nlv_pct × NLV × |return%|`
+- **Sell signal:** daily return > 0 (with position) → sell proportionally
+- **Optional cap:** `--cap` limits each buy to 25% of current cash
+
+### `indicators/zscore.py`
+
+Buys/sells based on how far price has deviated from its rolling mean:
+
+- **Buy signal:** z-score ≤ −threshold → buy, sized by z-score strength × max_allocation
+- **Sell signal:** z-score ≥ +threshold → sell entire position
+- Requires at least `--lookback` bars of history before generating signals
+
+## Key Findings
+
+| Strategy | Return | Final Value | Max DD | Notes |
+|---|---|---|---|---|
+| 1.65% NLV, no cap | 912.51% | $101,251 | -58.53% | Best raw performance |
+| 1.65% NLV, 25% cap | 814.56% | $91,455 | -57.08% | Recommended for live trading |
+| 1.00% NLV, no cap | 701.87% | $80,187 | -60.94% | Underperforms — avoid |
+
+*Tested on $10K starting capital, 2008–2026 (17.7 years), `indicators/daily_return.py`.*
+
+**Key insight:** Smaller sizing loses ~211 percentage points of return with no meaningful reduction in drawdown. The 25% cap costs ~100pp of return but limits margin demands.
+
+## Capital Requirements
+
+| NLV% sizing | Peak Margin Needed |
+|---|---|
+| 0.50% | ~$76K |
+| 1.00% | ~$152K |
+| 1.65% | ~$251K |
+| 2.50% | ~$381K |
+
+Real accounts must have sufficient margin available to avoid forced liquidations.
+
+## ETF Universe
+
+`proshares_leveraged_etfs.csv` contains 51 ProShares leveraged ETFs across categories:
+
+- **Broad Market** (UPRO, SSO, QLD, TQQQ, …)
+- **Sector** (CURE, ROM, UDOW, …)
+- **International** (EET, EFO, EZJ, …)
+- **Fixed Income** (UBT, UST, …)
+- **Commodities / Alternatives** (UGL, AGQ, …)
 
 ## Implementation Notes
 
-- **Lookback Period:** 20 trading days for rolling mean/std
-- **Z-Score Threshold:** 1.0 (approximately 68% confidence on normal distribution)
-- **Rebalancing:** None (mean reversion signals only, no forced profit-taking)
-- **Slippage/Commissions:** Not included (use real prices at close)
-- **Capital Tracking:** No leverage, positions maxed at 30% each
-
-## Testing Infrastructure
-
-All backtests include:
-- Daily portfolio snapshots
-- Trade-by-trade logs
-- Per-sector performance tracking
-- Win rate and P&L calculations
-- Maximum drawdown analysis
-- Sharpe ratio calculation
-
-## Customization
-
-To modify strategy parameters, edit `backtest.py`:
-
-```python
-backtester = PortfolioStddevBacktester(
-    prices_df=closes,
-    initial_capital=10000,           # Change starting capital
-    lookback_period=20,              # Change lookback (20-50 recommended)
-    z_threshold=1.0,                 # Change signal threshold (0.5-2.0)
-    max_sector_allocation=0.30,      # Change sector cap (0.20-0.50)
-)
-```
-
-## Future Enhancements
-
-Potential improvements:
-- Stop-loss on positions beyond max drawdown
-- Position sizing based on volatility
-- Trend filtering (don't short in uptrends)
-- Machine learning for z-score thresholds
-- Real-time trading integration
+- Data fetched from Yahoo Finance API (free, up to 30 years of history)
+- Closing prices only — no intraday trading or slippage modeling
+- No commissions or taxes modeled
+- Margin/leverage constraints depend on your broker account type
