@@ -364,7 +364,7 @@ git push -u origin claude/extract-etf-data-csv-i6lLh
 - [ ] **Hardcoded magic numbers** — `$10` min trade, `0.001` position threshold, `252` trading days, `0.25` margin cap
 - [ ] **No indicator `signal()` validation** (`backtest.py:55-57`) — malformed indicators crash at runtime
 - [x] **No CI/CD pipeline** — tests exist but nothing runs them automatically
-- [ ] **Output CSVs committed to git** — 62 reproducible files tracked in `output/`
+- [x] **Output CSVs committed to git** — 62 reproducible files tracked in `output/`
 
 ### What's Done Well
 - Clean engine/indicator plugin separation
