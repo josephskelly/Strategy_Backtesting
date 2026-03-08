@@ -338,7 +338,43 @@ git push -u origin claude/extract-etf-data-csv-i6lLh
 - **Branch**: `claude/extract-etf-data-csv-i6lLh`
 - **Owner**: josephskelly
 
+## Code Review Findings (2026-03-08)
+
+### HIGH Priority Bugs
+
+1. **Sharpe Ratio Calculation is Wrong** (`engine.py:244`)
+   - Divides daily P&L by `initial_capital` instead of prior day's portfolio value
+   - Increasingly understates volatility as portfolio grows (denominator ~10x too small at 912% return)
+   - Fix: `daily_returns = np.diff(total_values) / total_values[:-1]`
+
+2. **Sector P&L Uses Broken Trade Pairing** (`engine.py:267-276`)
+   - `zip(buys, sells)` silently truncates to shorter list
+   - Mean-reversion buys/sells at different quantities/frequencies, so positional pairing is incorrect
+   - Fix: Use weighted-average cost basis approach instead
+
+3. **Win Rate Has Same Pairing Bug** (`engine.py:278`)
+   - Same `zip(buys, sells)` truncation issue
+   - Numerator uses paired count, denominator uses `len(buys)` — semantically inconsistent
+
+### LOW Priority Issues
+
+4. **Sharpe uses population stddev** (`engine.py:247`) — `np.std()` defaults to `ddof=0`; finance convention uses `ddof=1`
+5. **`numpy` missing from `requirements.txt`** — imported directly but not listed as dependency
+6. **`sector_trades` naming misleading** (`engine.py:115`) — tracks per-ticker, not per-sector
+7. **Hardcoded magic numbers** — `$10` min trade, `0.001` position threshold, `252` trading days, `0.25` margin cap
+8. **No indicator `signal()` validation** (`backtest.py:55-57`) — malformed indicators crash at runtime
+9. **No CI/CD pipeline** — tests exist but nothing runs them automatically
+10. **Output CSVs committed to git** — 62 reproducible files tracked in `output/`
+
+### What's Done Well
+- Clean engine/indicator plugin separation
+- Proper NaN and division-by-zero guards
+- Sell capping prevents negative positions
+- Comprehensive documentation (2,191 lines)
+- Well-managed archive (49 legacy files isolated)
+- Good test suite (87 tests across 4 modules)
+
 ---
 
-**Last Updated**: 2026-03-07
+**Last Updated**: 2026-03-08
 **Status**: Active development
