@@ -39,6 +39,7 @@ DEFAULT_INTERVAL = "1d"
 INITIAL_CAPITAL = 10_000
 TRADING_DAYS_PER_YEAR: int = 252     # Annualisation factor for year calculation
 ETF_CSV = "proshares_leveraged_etfs.csv"
+BENCHMARK_TICKER: str = "SPY"
 
 
 # ---------------------------------------------------------------------------
@@ -102,6 +103,7 @@ def run_single(
     indicator: types.ModuleType,
     years: int = DEFAULT_YEARS,
     interval: str = DEFAULT_INTERVAL,
+    benchmark_df: pd.DataFrame | None = None,
 ) -> dict | None:
     """
     Fetch data, run the backtest, save weekly CSV, return a summary dict.
@@ -145,11 +147,25 @@ def run_single(
     weekly_df.to_csv(out_path)
     print(f"  Saved {len(weekly_df)} weekly rows → {out_path}")
 
+    bh_return: float | None = None
+    bh_final: float | None = None
+    if benchmark_df is not None:
+        spy = benchmark_df.loc[prices_df.index[0] : prices_df.index[-1]]
+        if len(spy) >= 2:
+            spy_start = float(spy.iloc[0, 0])
+            spy_end   = float(spy.iloc[-1, 0])
+            bh_return = (spy_end / spy_start - 1) * 100
+            bh_final  = INITIAL_CAPITAL * (spy_end / spy_start)
+
+    bh_str = (
+        f"  |  SPY B&H: {bh_return:.2f}% (${bh_final:,.0f})"
+        if bh_return is not None else ""
+    )
     print(
         f"  Return: {results.total_return:.2f}%  |  "
         f"Final: ${results.final_value:,.2f}  |  "
         f"Max DD: {results.max_drawdown:.2f}%  |  "
-        f"Sharpe: {results.sharpe_ratio:.3f}"
+        f"Sharpe: {results.sharpe_ratio:.3f}{bh_str}"
     )
 
     return {
@@ -162,6 +178,8 @@ def run_single(
         "Start Date": prices_df.index[0].date().isoformat(),
         "End Date": prices_df.index[-1].date().isoformat(),
         "Years": round(len(prices_df) / TRADING_DAYS_PER_YEAR, 1),
+        "SPY B&H %": round(bh_return, 2) if bh_return is not None else "N/A",
+        "SPY B&H $": round(bh_final, 2)  if bh_final  is not None else "N/A",
     }
 
 
@@ -173,6 +191,7 @@ def run_all(
     indicator: types.ModuleType,
     years: int = DEFAULT_YEARS,
     interval: str = DEFAULT_INTERVAL,
+    benchmark_df: pd.DataFrame | None = None,
 ) -> None:
     """Run backtest for every ETF listed in proshares_leveraged_etfs.csv."""
     try:
@@ -190,7 +209,7 @@ def run_all(
 
     summaries = []
     for ticker in tickers:
-        result = run_single(ticker, indicator=indicator, years=years, interval=interval)
+        result = run_single(ticker, indicator=indicator, years=years, interval=interval, benchmark_df=benchmark_df)
         if result:
             result["Category"] = categories.get(ticker, "")
             summaries.append(result)
@@ -214,7 +233,7 @@ def run_all(
     print("ALL ETFs — ranked by Return %")
     print("=" * 90)
     cols = ["Rank", "Ticker", "Category", "Return %", "Final Value $",
-            "Max Drawdown %", "Sharpe", "Trades", "Years"]
+            "Max Drawdown %", "Sharpe", "Trades", "Years", "SPY B&H %", "SPY B&H $"]
     print(summary_df[cols].to_string(index=False))
     print(f"\nFull results → {out_csv}")
     print(f"Best:  {summary_df.iloc[0]['Ticker']}  {summary_df.iloc[0]['Return %']:.2f}%")
@@ -278,14 +297,22 @@ def main() -> None:
     # (argparse uses underscores; pass them all and let the indicator pick what it needs)
     indicator = indicator_module.Indicator(**vars(args))
 
+    print(f"Fetching {BENCHMARK_TICKER} benchmark...")
+    benchmark_df: pd.DataFrame | None = None
+    try:
+        benchmark_df = fetch_closes(BENCHMARK_TICKER, range_=f"{args.years}y", interval=args.interval)
+    except Exception as e:
+        print(f"  Warning: could not fetch {BENCHMARK_TICKER} benchmark: {e}")
+
     if args.all:
-        run_all(indicator=indicator, years=args.years, interval=args.interval)
+        run_all(indicator=indicator, years=args.years, interval=args.interval, benchmark_df=benchmark_df)
     elif args.ticker:
         result = run_single(
             args.ticker,
             indicator=indicator,
             years=args.years,
             interval=args.interval,
+            benchmark_df=benchmark_df,
         )
         if result:
             print(f"\n{'=' * 50}")
