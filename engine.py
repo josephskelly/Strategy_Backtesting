@@ -112,7 +112,7 @@ class BacktestEngine:
         self.cash = initial_capital
         self.trades: list[TradeRecord] = []
         self.snapshots: list[PortfolioSnapshot] = []
-        self.sector_trades: dict[str, list[TradeRecord]] = {t: [] for t in self.tickers}
+        self.ticker_trades: dict[str, list[TradeRecord]] = {t: [] for t in self.tickers}
         self.min_cash = initial_capital
         self.went_negative = False
 
@@ -186,7 +186,7 @@ class BacktestEngine:
         record = TradeRecord(date=date, ticker=ticker, action="BUY",
                              price=price, quantity=qty, value=trade_value)
         self.trades.append(record)
-        self.sector_trades[ticker].append(record)
+        self.ticker_trades[ticker].append(record)
 
     def _execute_sell(self, ticker: str, date, price: float, trade_value: float) -> None:
         if trade_value <= 10:
@@ -199,7 +199,7 @@ class BacktestEngine:
         record = TradeRecord(date=date, ticker=ticker, action="SELL",
                              price=price, quantity=qty, value=trade_value)
         self.trades.append(record)
-        self.sector_trades[ticker].append(record)
+        self.ticker_trades[ticker].append(record)
 
     def _take_snapshot(self, date) -> None:
         invested_value = 0.0
@@ -260,7 +260,7 @@ class BacktestEngine:
         # Sector performance (weighted-average cost basis)
         sector_performance: dict[str, dict] = {}
         for ticker in self.tickers:
-            trades = self.sector_trades[ticker]
+            trades = self.ticker_trades[ticker]
             if not trades:
                 sector_performance[ticker] = {
                     "num_trades": 0, "pnl": 0, "return_pct": 0,

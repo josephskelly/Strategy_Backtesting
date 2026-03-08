@@ -55,6 +55,9 @@ def _load_indicator_module(path: str) -> types.ModuleType:
     if not hasattr(mod, "Indicator"):
         print(f"Error: {path} must export a class named 'Indicator'.")
         sys.exit(1)
+    if not callable(getattr(mod.Indicator, "signal", None)):
+        print(f"Error: {path} Indicator class must implement a signal() method.")
+        sys.exit(1)
     return mod
 
 
