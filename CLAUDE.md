@@ -347,18 +347,18 @@ git push -u origin claude/extract-etf-data-csv-i6lLh
    - Increasingly understates volatility as portfolio grows (denominator ~10x too small at 912% return)
    - Fix: `daily_returns = np.diff(total_values) / total_values[:-1]`
 
-- [ ] **Sector P&L Uses Broken Trade Pairing** (`engine.py:267-276`)
+- [x] **Sector P&L Uses Broken Trade Pairing** (`engine.py:267-276`)
    - `zip(buys, sells)` silently truncates to shorter list
    - Mean-reversion buys/sells at different quantities/frequencies, so positional pairing is incorrect
    - Fix: Use weighted-average cost basis approach instead
 
-- [ ] **Win Rate Has Same Pairing Bug** (`engine.py:278`)
+- [x] **Win Rate Has Same Pairing Bug** (`engine.py:278`)
    - Same `zip(buys, sells)` truncation issue
    - Numerator uses paired count, denominator uses `len(buys)` — semantically inconsistent
 
 ### LOW Priority Issues
 
-- [ ] **Sharpe uses population stddev** (`engine.py:247`) — `np.std()` defaults to `ddof=0`; finance convention uses `ddof=1`
+- [x] **Sharpe uses population stddev** (`engine.py:247`) — `np.std()` defaults to `ddof=0`; finance convention uses `ddof=1`
 - [x] **`numpy` missing from `requirements.txt`** — imported directly but not listed as dependency
 - [ ] **`sector_trades` naming misleading** (`engine.py:115`) — tracks per-ticker, not per-sector
 - [ ] **Hardcoded magic numbers** — `$10` min trade, `0.001` position threshold, `252` trading days, `0.25` margin cap
