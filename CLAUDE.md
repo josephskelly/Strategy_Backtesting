@@ -359,7 +359,7 @@ git push -u origin claude/extract-etf-data-csv-i6lLh
 ### LOW Priority Issues
 
 - [ ] **Sharpe uses population stddev** (`engine.py:247`) — `np.std()` defaults to `ddof=0`; finance convention uses `ddof=1`
-- [ ] **`numpy` missing from `requirements.txt`** — imported directly but not listed as dependency
+- [x] **`numpy` missing from `requirements.txt`** — imported directly but not listed as dependency
 - [ ] **`sector_trades` naming misleading** (`engine.py:115`) — tracks per-ticker, not per-sector
 - [ ] **Hardcoded magic numbers** — `$10` min trade, `0.001` position threshold, `252` trading days, `0.25` margin cap
 - [ ] **No indicator `signal()` validation** (`backtest.py:55-57`) — malformed indicators crash at runtime
