@@ -317,6 +317,31 @@ class TestComputeResults:
         results = BacktestEngine(prices, HoldIndicator(), initial_capital=10_000).run()
         assert results.sharpe_ratio == pytest.approx(0.0)
 
+    def test_sharpe_uses_percentage_returns(self):
+        """Sharpe should use prior-day value as denominator, not initial capital."""
+        # With HoldIndicator and no trades, total_values == [10_000] * N.
+        # Prices going up don't change portfolio (no positions held).
+        # Use a scripted indicator: buy on day 0, hold after.
+        # Prices: 100, 110, 121 → portfolio gains from the position.
+        prices = make_prices({"A": [100.0, 110.0, 121.0, 133.1]})
+        signals = [("BUY", 5_000.0), ("HOLD", 0.0), ("HOLD", 0.0), ("HOLD", 0.0)]
+        results = BacktestEngine(
+            prices, ScriptedIndicator(signals), initial_capital=10_000
+        ).run()
+        # With 50 shares bought at 100 ($5000), values are:
+        # Day 0: cash=5000, invested=5000, total=10000
+        # Day 1: cash=5000, invested=5500, total=10500
+        # Day 2: cash=5000, invested=6050, total=11050
+        # Day 3: cash=5000, invested=6655, total=11655
+        # daily % returns: 500/10000=5%, 550/10500≈5.238%, 605/11050≈5.475%
+        # These are NOT equal — confirming the denominator varies by day
+        total_values = np.array([10_000.0, 10_500.0, 11_050.0, 11_655.0])
+        daily_rets = np.diff(total_values) / total_values[:-1]
+        expected = float(
+            np.mean(daily_rets) / np.std(daily_rets, ddof=1) * np.sqrt(252)
+        )
+        assert results.sharpe_ratio == pytest.approx(expected, rel=1e-4)
+
     def test_sector_performance_has_all_tickers(self):
         prices = make_prices({"A": [100.0, 101.0], "B": [50.0, 51.0]})
         results = BacktestEngine(prices, HoldIndicator(), initial_capital=10_000).run()
