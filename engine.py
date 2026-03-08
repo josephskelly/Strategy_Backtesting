@@ -39,6 +39,10 @@ import numpy as np
 import pandas as pd
 from dataclasses import dataclass, field
 
+MIN_TRADE_VALUE: float = 5.0         # Ignore trades smaller than $5
+MIN_POSITION_SHARES: float = 0.001   # Treat positions below this as closed (float precision)
+TRADING_DAYS_PER_YEAR: int = 252     # Annualisation factor for Sharpe ratio
+
 
 @dataclass
 class TradeRecord:
@@ -177,7 +181,7 @@ class BacktestEngine:
         return self.cash + invested
 
     def _execute_buy(self, ticker: str, date, price: float, trade_value: float) -> None:
-        if trade_value <= 10 or self.cash <= 0:
+        if trade_value <= MIN_TRADE_VALUE or self.cash <= 0:
             return
         trade_value = min(trade_value, self.cash)
         qty = trade_value / price
@@ -189,7 +193,7 @@ class BacktestEngine:
         self.ticker_trades[ticker].append(record)
 
     def _execute_sell(self, ticker: str, date, price: float, trade_value: float) -> None:
-        if trade_value <= 10:
+        if trade_value <= MIN_TRADE_VALUE:
             return
         max_sell = self.positions[ticker] * price
         trade_value = min(trade_value, max_sell)
@@ -213,7 +217,7 @@ class BacktestEngine:
 
         total_value = self.cash + invested_value
         returns_pct = (total_value - self.initial_capital) / self.initial_capital * 100
-        num_positions = sum(1 for q in self.positions.values() if q > 0.001)
+        num_positions = sum(1 for q in self.positions.values() if q > MIN_POSITION_SHARES)
 
         self.snapshots.append(PortfolioSnapshot(
             date=date,
@@ -244,7 +248,7 @@ class BacktestEngine:
         daily_returns = np.diff(total_values) / total_values[:-1]
         if len(daily_returns) > 1 and np.std(daily_returns, ddof=1) > 0:
             sharpe_ratio = float(
-                np.mean(daily_returns) / np.std(daily_returns, ddof=1) * np.sqrt(252)
+                np.mean(daily_returns) / np.std(daily_returns, ddof=1) * np.sqrt(TRADING_DAYS_PER_YEAR)
             )
         else:
             sharpe_ratio = 0.0
@@ -289,7 +293,7 @@ class BacktestEngine:
 
             # Unrealized P&L on remaining position
             unrealized_pnl = 0.0
-            if shares_held > 0.001:
+            if shares_held > MIN_POSITION_SHARES:
                 last_price = float(self.prices_df[ticker].iloc[-1])
                 unrealized_pnl = (last_price - avg_cost) * shares_held
 

@@ -17,6 +17,9 @@ Example usage (via backtest.py):
 """
 
 
+DEFAULT_MARGIN_CAP: float = 0.25     # Max fraction of cash per buy when --cap is set
+
+
 def add_args(parser) -> None:
     """Register indicator-specific CLI flags."""
     parser.add_argument(
@@ -29,7 +32,7 @@ def add_args(parser) -> None:
     parser.add_argument(
         "--cap",
         action="store_true",
-        help="Cap each buy to at most 25%% of current cash.",
+        help=f"Cap each buy to at most {int(DEFAULT_MARGIN_CAP * 100)}%% of current cash.",
     )
 
 
@@ -38,7 +41,7 @@ class Indicator:
 
     def __init__(self, **kwargs):
         self.nlv_pct_per_percent: float = kwargs.get("nlv_pct", 1.65)
-        self.margin_cap: float | None = 0.25 if kwargs.get("cap", False) else None
+        self.margin_cap: float | None = DEFAULT_MARGIN_CAP if kwargs.get("cap", False) else None
 
     def signal(
         self,

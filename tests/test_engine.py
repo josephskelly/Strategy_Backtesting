@@ -11,7 +11,7 @@ import pandas as pd
 import pytest
 
 from tests.conftest import make_prices
-from engine import BacktestEngine, BacktestResults, TradeRecord, PortfolioSnapshot
+from engine import BacktestEngine, BacktestResults, TradeRecord, PortfolioSnapshot, MIN_TRADE_VALUE
 
 
 # ---------------------------------------------------------------------------
@@ -145,7 +145,7 @@ class TestExecuteBuy:
     def test_buy_ignored_when_trade_value_too_small(self):
         e = self._engine()
         date = make_prices({"A": [100.0]}).index[0]
-        e._execute_buy("A", date, 100.0, 9.99)   # below $10 minimum
+        e._execute_buy("A", date, 100.0, MIN_TRADE_VALUE - 0.01)   # below minimum
         assert e.cash == pytest.approx(10_000.0)
         assert e.positions["A"] == pytest.approx(0.0)
         assert len(e.trades) == 0
@@ -198,7 +198,7 @@ class TestExecuteSell:
     def test_sell_ignored_when_trade_value_too_small(self):
         e = self._engine_with_position(qty=5.0)
         date = make_prices({"A": [100.0]}).index[0]
-        e._execute_sell("A", date, 100.0, 5.0)   # below $10 minimum
+        e._execute_sell("A", date, 100.0, MIN_TRADE_VALUE - 0.01)   # below minimum
         assert e.positions["A"] == pytest.approx(5.0)
         assert len(e.trades) == 0
 

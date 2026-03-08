@@ -37,6 +37,7 @@ DEFAULT_INDICATOR = "indicators/daily_return.py"
 DEFAULT_YEARS = 30
 DEFAULT_INTERVAL = "1d"
 INITIAL_CAPITAL = 10_000
+TRADING_DAYS_PER_YEAR: int = 252     # Annualisation factor for year calculation
 ETF_CSV = "proshares_leveraged_etfs.csv"
 
 
@@ -160,7 +161,7 @@ def run_single(
         "Trades": results.num_trades,
         "Start Date": prices_df.index[0].date().isoformat(),
         "End Date": prices_df.index[-1].date().isoformat(),
-        "Years": round(len(prices_df) / 252, 1),
+        "Years": round(len(prices_df) / TRADING_DAYS_PER_YEAR, 1),
     }
 
 
