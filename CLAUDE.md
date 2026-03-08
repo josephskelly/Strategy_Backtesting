@@ -365,6 +365,7 @@ git push -u origin claude/extract-etf-data-csv-i6lLh
 - [x] **No indicator `signal()` validation** (`backtest.py:55-57`) — malformed indicators crash at runtime
 - [x] **No CI/CD pipeline** — tests exist but nothing runs them automatically
 - [x] **Output CSVs committed to git** — 62 reproducible files tracked in `output/`
+- [ ] **pytest warning: divide by zero in archived test** (`_archive/test_backtest_engine.py::TestEdgeCases::test_zero_threshold`) — `_archive/backtest_engine.py:124` divides by `z_threshold` without guarding against zero; either fix the guard or remove the archived test from pytest collection
 
 ### What's Done Well
 - Clean engine/indicator plugin separation
