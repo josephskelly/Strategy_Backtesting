@@ -17,8 +17,17 @@ Example usage (via backtest.py):
     python backtest.py TQQQ --indicator indicators/zscore.py --z-threshold 1.5 --lookback 30
 """
 
+from __future__ import annotations
 
-def add_args(parser) -> None:
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import argparse
+
+    import pandas as pd
+
+
+def add_args(parser: argparse.ArgumentParser) -> None:
     """Register indicator-specific CLI flags."""
     parser.add_argument(
         "--lookback",
@@ -54,10 +63,10 @@ class Indicator:
     def signal(
         self,
         ticker: str,
-        date,
+        date: pd.Timestamp,
         current_price: float,
         prev_price: float | None,
-        prices_history,
+        prices_history: pd.Series,
         position: float,
         cash: float,
         nlv: float,

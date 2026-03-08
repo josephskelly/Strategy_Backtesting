@@ -99,7 +99,7 @@ def fetch_closes(ticker: str, range_: str = "30y", interval: str = "1d") -> pd.D
 
 def run_single(
     ticker: str,
-    indicator,
+    indicator: types.ModuleType,
     years: int = DEFAULT_YEARS,
     interval: str = DEFAULT_INTERVAL,
 ) -> dict | None:
@@ -170,7 +170,7 @@ def run_single(
 # ---------------------------------------------------------------------------
 
 def run_all(
-    indicator,
+    indicator: types.ModuleType,
     years: int = DEFAULT_YEARS,
     interval: str = DEFAULT_INTERVAL,
 ) -> None:

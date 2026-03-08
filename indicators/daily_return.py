@@ -17,10 +17,19 @@ Example usage (via backtest.py):
 """
 
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import argparse
+
+    import pandas as pd
+
 DEFAULT_MARGIN_CAP: float = 0.25     # Max fraction of cash per buy when --cap is set
 
 
-def add_args(parser) -> None:
+def add_args(parser: argparse.ArgumentParser) -> None:
     """Register indicator-specific CLI flags."""
     parser.add_argument(
         "--nlv-pct",
@@ -46,10 +55,10 @@ class Indicator:
     def signal(
         self,
         ticker: str,
-        date,
+        date: pd.Timestamp,
         current_price: float,
         prev_price: float | None,
-        prices_history,
+        prices_history: pd.Series,
         position: float,
         cash: float,
         nlv: float,
