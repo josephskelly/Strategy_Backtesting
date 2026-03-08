@@ -157,15 +157,21 @@ def run_single(
             bh_return = (spy_end / spy_start - 1) * 100
             bh_final  = INITIAL_CAPITAL * (spy_end / spy_start)
 
+    ticker_start = float(prices_df.iloc[0, 0])
+    ticker_end   = float(prices_df.iloc[-1, 0])
+    ticker_bh_return = (ticker_end / ticker_start - 1) * 100
+    ticker_bh_final  = INITIAL_CAPITAL * (ticker_end / ticker_start)
+
     bh_str = (
         f"  |  SPY B&H: {bh_return:.2f}% (${bh_final:,.0f})"
         if bh_return is not None else ""
     )
+    ticker_bh_str = f"  |  {ticker} B&H: {ticker_bh_return:.2f}% (${ticker_bh_final:,.0f})"
     print(
         f"  Return: {results.total_return:.2f}%  |  "
         f"Final: ${results.final_value:,.2f}  |  "
         f"Max DD: {results.max_drawdown:.2f}%  |  "
-        f"Sharpe: {results.sharpe_ratio:.3f}{bh_str}"
+        f"Sharpe: {results.sharpe_ratio:.3f}{bh_str}{ticker_bh_str}"
     )
 
     return {
@@ -180,6 +186,8 @@ def run_single(
         "Years": round(len(prices_df) / TRADING_DAYS_PER_YEAR, 1),
         "SPY B&H %": round(bh_return, 2) if bh_return is not None else "N/A",
         "SPY B&H $": round(bh_final, 2)  if bh_final  is not None else "N/A",
+        "Asset B&H %": round(ticker_bh_return, 2),
+        "Asset B&H $": round(ticker_bh_final, 2),
     }
 
 
@@ -233,7 +241,8 @@ def run_all(
     print("ALL ETFs — ranked by Return %")
     print("=" * 90)
     cols = ["Rank", "Ticker", "Category", "Return %", "Final Value $",
-            "Max Drawdown %", "Sharpe", "Trades", "Years", "SPY B&H %", "SPY B&H $"]
+            "Max Drawdown %", "Sharpe", "Trades", "Years",
+            "SPY B&H %", "SPY B&H $", "Asset B&H %", "Asset B&H $"]
     print(summary_df[cols].to_string(index=False))
     print(f"\nFull results → {out_csv}")
     print(f"Best:  {summary_df.iloc[0]['Ticker']}  {summary_df.iloc[0]['Return %']:.2f}%")
