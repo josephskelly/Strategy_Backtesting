@@ -241,10 +241,10 @@ class BacktestEngine:
         max_drawdown = float(drawdowns.min())
 
         # Sharpe ratio (annualised)
-        daily_returns = np.diff(total_values) / self.initial_capital
-        if len(daily_returns) > 1 and np.std(daily_returns) > 0:
+        daily_returns = np.diff(total_values) / total_values[:-1]
+        if len(daily_returns) > 1 and np.std(daily_returns, ddof=1) > 0:
             sharpe_ratio = float(
-                np.mean(daily_returns) / np.std(daily_returns) * np.sqrt(252)
+                np.mean(daily_returns) / np.std(daily_returns, ddof=1) * np.sqrt(252)
             )
         else:
             sharpe_ratio = 0.0
