@@ -25,6 +25,7 @@ import sys
 import time
 import types
 
+import numpy as np
 import pandas as pd
 import requests
 
@@ -210,6 +211,170 @@ def run_single(
 
 
 # ---------------------------------------------------------------------------
+# Combined two-indicator run
+# ---------------------------------------------------------------------------
+
+def run_combined(
+    ticker: str,
+    indicator1,
+    indicator2,
+    split_pct: float = 50.0,
+    years: int = DEFAULT_YEARS,
+    interval: str = DEFAULT_INTERVAL,
+    benchmark_df: pd.DataFrame | None = None,
+) -> dict | None:
+    """
+    Run two indicators simultaneously on *ticker*, each with a slice of
+    INITIAL_CAPITAL.  Returns a combined summary dict on success, None on failure.
+    """
+    ticker = ticker.upper()
+    range_ = f"{years}y"
+    print(f"\nFetching {ticker} ({range_}, {interval}) for combined run...")
+    try:
+        prices_df = fetch_closes(ticker, range_=range_, interval=interval)
+    except Exception as e:
+        print(f"  Warning: could not fetch {ticker}: {e}")
+        return None
+
+    primary_start = prices_df.index[0]
+    primary_end   = prices_df.index[-1]
+    bar_label = "bars" if interval != "1d" else "trading days"
+    print(
+        f"  {ticker}: {len(prices_df)} {bar_label} "
+        f"({primary_start.date()} to {primary_end.date()})"
+    )
+
+    # Auto-fetch hedge ticker for indicator1 if enabled
+    hedge_ticker = getattr(indicator1, "hedge_ticker", None)
+    hedge_pct    = getattr(indicator1, "hedge_pct", 0.0)
+    prices_df1 = prices_df
+    if hedge_pct > 0 and hedge_ticker and hedge_ticker != ticker:
+        try:
+            hedge_df = fetch_closes(hedge_ticker, range_=range_, interval=interval)
+            prices_df1 = pd.concat([prices_df, hedge_df], axis=1)
+            print(f"  Indicator1 hedge: {hedge_ticker} ({hedge_pct:.0f}% of NLV)")
+        except Exception as e:
+            print(f"  Warning: could not fetch hedge {hedge_ticker}: {e}")
+
+    cap1 = INITIAL_CAPITAL * split_pct / 100.0
+    cap2 = INITIAL_CAPITAL - cap1
+
+    print(f"  Split: {split_pct:.0f}% (${cap1:,.0f}) / {100-split_pct:.0f}% (${cap2:,.0f})")
+
+    results1 = BacktestEngine(prices_df=prices_df1, indicator=indicator1, initial_capital=cap1).run()
+    results2 = BacktestEngine(prices_df=prices_df,  indicator=indicator2, initial_capital=cap2).run()
+
+    print(f"  Indicator1: Return={results1.total_return:.2f}%  Final=${results1.final_value:,.2f}  MaxDD={results1.max_drawdown:.2f}%  Sharpe={results1.sharpe_ratio:.3f}")
+    print(f"  Indicator2: Return={results2.total_return:.2f}%  Final=${results2.final_value:,.2f}  MaxDD={results2.max_drawdown:.2f}%  Sharpe={results2.sharpe_ratio:.3f}")
+
+    # Build combined daily NLV series (snapshots share same dates — same prices_df)
+    vals1 = {s.date: s.total_value for s in results1.snapshots}
+    vals2 = {s.date: s.total_value for s in results2.snapshots}
+    all_dates = sorted(set(vals1) | set(vals2))
+    combined_values = np.array([
+        vals1.get(d, 0.0) + vals2.get(d, 0.0) for d in all_dates
+    ])
+
+    final_value  = float(combined_values[-1])
+    total_return = (final_value / INITIAL_CAPITAL - 1) * 100
+    start_date, end_date = all_dates[0], all_dates[-1]
+    total_years  = (end_date - start_date).days / 365.25
+    cagr = ((final_value / INITIAL_CAPITAL) ** (1 / total_years) - 1) * 100 if total_years > 0 else 0.0
+
+    running_max  = np.maximum.accumulate(combined_values)
+    max_drawdown = float(((combined_values - running_max) / running_max * 100).min())
+
+    daily_rets = np.diff(combined_values) / combined_values[:-1]
+    if len(daily_rets) > 1 and np.std(daily_rets, ddof=1) > 0:
+        sharpe = float(np.mean(daily_rets) / np.std(daily_rets, ddof=1) * np.sqrt(TRADING_DAYS_PER_YEAR))
+    else:
+        sharpe = 0.0
+
+    num_trades = results1.num_trades + results2.num_trades
+
+    # Merge sector performance
+    merged_sector: dict = {}
+    for sp in (results1.sector_performance, results2.sector_performance):
+        for tkr, stats in sp.items():
+            if tkr not in merged_sector:
+                merged_sector[tkr] = dict(stats)
+            else:
+                merged_sector[tkr]["num_trades"] += stats["num_trades"]
+                merged_sector[tkr]["pnl"]        += stats["pnl"]
+                merged_sector[tkr]["num_wins"]   += stats["num_wins"]
+    for tkr, stats in merged_sector.items():
+        total_cap = stats.get("invested_capital", INITIAL_CAPITAL) or INITIAL_CAPITAL
+        stats["return_pct"] = stats["pnl"] / total_cap * 100
+        trades = stats["num_trades"]
+        stats["win_rate"] = stats["num_wins"] / trades * 100 if trades > 0 else 0.0
+
+    # Save combined weekly CSV
+    combined_dict = {d: v for d, v in zip(all_dates, combined_values)}
+    cash1 = {s.date: s.cash for s in results1.snapshots}
+    cash2 = {s.date: s.cash for s in results2.snapshots}
+    inv1  = {s.date: s.invested_value for s in results1.snapshots}
+    inv2  = {s.date: s.invested_value for s in results2.snapshots}
+    daily_records = [
+        {
+            "date": d,
+            "positions_value": inv1.get(d, 0.0) + inv2.get(d, 0.0),
+            "cash":            cash1.get(d, 0.0) + cash2.get(d, 0.0),
+            "net_liq":         combined_dict[d],
+        }
+        for d in all_dates
+    ]
+    daily_df = pd.DataFrame(daily_records).set_index("date")
+    weekly_df = daily_df.resample("W-FRI").last().dropna().round(2)
+    out_path = f"{OUTPUT_DIR}/{ticker.lower()}_combined_weekly_balances.csv"
+    weekly_df.to_csv(out_path)
+    print(f"  Saved {len(weekly_df)} combined weekly rows → {out_path}")
+
+    bh_return: float | None = None
+    bh_final: float | None = None
+    if benchmark_df is not None:
+        spy = benchmark_df.loc[primary_start:primary_end]
+        if len(spy) >= 2:
+            spy_start = float(spy.iloc[0, 0])
+            spy_end   = float(spy.iloc[-1, 0])
+            bh_return = (spy_end / spy_start - 1) * 100
+            bh_final  = INITIAL_CAPITAL * (spy_end / spy_start)
+
+    ticker_prices   = prices_df[ticker]
+    ticker_bh_return = (float(ticker_prices.iloc[-1]) / float(ticker_prices.iloc[0]) - 1) * 100
+    ticker_bh_final  = INITIAL_CAPITAL * (float(ticker_prices.iloc[-1]) / float(ticker_prices.iloc[0]))
+
+    bh_str = (
+        f"  |  SPY B&H: {bh_return:.2f}% (${bh_final:,.0f})"
+        if bh_return is not None else ""
+    )
+    ticker_bh_str = f"  |  {ticker} B&H: {ticker_bh_return:.2f}% (${ticker_bh_final:,.0f})"
+    print(
+        f"  COMBINED: Return: {total_return:.2f}%  |  "
+        f"CAGR: {cagr:.2f}%  |  "
+        f"Final: ${final_value:,.2f}  |  "
+        f"Max DD: {max_drawdown:.2f}%  |  "
+        f"Sharpe: {sharpe:.3f}{bh_str}{ticker_bh_str}"
+    )
+
+    return {
+        "Ticker": ticker,
+        "Return %": round(total_return, 2),
+        "CAGR %": round(cagr, 2),
+        "Final Value $": round(final_value, 2),
+        "Max Drawdown %": round(max_drawdown, 2),
+        "Sharpe": round(sharpe, 3),
+        "Trades": num_trades,
+        "Start Date": primary_start.date().isoformat(),
+        "End Date": primary_end.date().isoformat(),
+        "Years": round(total_years, 1),
+        "SPY B&H %": round(bh_return, 2) if bh_return is not None else "N/A",
+        "SPY B&H $": round(bh_final, 2)  if bh_final  is not None else "N/A",
+        "Asset B&H %": round(ticker_bh_return, 2),
+        "Asset B&H $": round(ticker_bh_final, 2),
+    }
+
+
+# ---------------------------------------------------------------------------
 # All-ETFs run
 # ---------------------------------------------------------------------------
 
@@ -272,14 +437,16 @@ def run_all(
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    # Phase 1: discover which indicator to load (before full arg parse).
+    # Phase 1: discover which indicator(s) to load (before full arg parse).
     pre = argparse.ArgumentParser(add_help=False)
     pre.add_argument("--indicator", default=DEFAULT_INDICATOR)
+    pre.add_argument("--indicator2", default=None)
     pre_args, _ = pre.parse_known_args()
 
-    indicator_module = _load_indicator_module(pre_args.indicator)
+    indicator_module  = _load_indicator_module(pre_args.indicator)
+    indicator2_module = _load_indicator_module(pre_args.indicator2) if pre_args.indicator2 else None
 
-    # Phase 2: build the full parser, letting the indicator add its own flags.
+    # Phase 2: build the full parser, letting both indicators add their own flags.
     parser = argparse.ArgumentParser(
         description="Mean-reversion backtester with pluggable indicator.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -301,6 +468,19 @@ def main() -> None:
         help="Path to a .py indicator module.",
     )
     parser.add_argument(
+        "--indicator2",
+        default=None,
+        metavar="PATH",
+        help="Path to a second .py indicator module (enables split-capital combined run).",
+    )
+    parser.add_argument(
+        "--split",
+        type=float,
+        default=50.0,
+        metavar="PCT",
+        help="Percent of capital allocated to --indicator (default: 50). Remainder goes to --indicator2.",
+    )
+    parser.add_argument(
         "--years",
         type=int,
         default=DEFAULT_YEARS,
@@ -314,14 +494,16 @@ def main() -> None:
         help="Bar interval: daily (1d) or weekly (1wk).",
     )
 
-    # Let the indicator register its own flags
+    # Let each indicator register its own flags
     if hasattr(indicator_module, "add_args"):
         indicator_module.add_args(parser)
+    if indicator2_module and hasattr(indicator2_module, "add_args"):
+        indicator2_module.add_args(parser)
 
     args = parser.parse_args()
 
-    # Instantiate indicator with all parsed args as kwargs
-    # (argparse uses underscores; pass them all and let the indicator pick what it needs)
+    # Instantiate indicator(s) with all parsed args as kwargs
+    # (argparse uses underscores; pass them all and let each indicator pick what it needs)
     indicator = indicator_module.Indicator(**vars(args))
 
     print(f"Fetching {BENCHMARK_TICKER} benchmark...")
@@ -331,7 +513,24 @@ def main() -> None:
     except Exception as e:
         print(f"  Warning: could not fetch {BENCHMARK_TICKER} benchmark: {e}")
 
-    if args.all:
+    if args.indicator2 and args.ticker:
+        indicator2 = indicator2_module.Indicator(**vars(args))
+        result = run_combined(
+            args.ticker,
+            indicator1=indicator,
+            indicator2=indicator2,
+            split_pct=args.split,
+            years=args.years,
+            interval=args.interval,
+            benchmark_df=benchmark_df,
+        )
+        if result:
+            print(f"\n{'=' * 50}")
+            print(f"COMBINED SUMMARY  ({args.years}y, {args.interval})")
+            print(f"{'=' * 50}")
+            for k, v in result.items():
+                print(f"{k:<20} {v}")
+    elif args.all:
         run_all(indicator=indicator, years=args.years, interval=args.interval, benchmark_df=benchmark_df)
     elif args.ticker:
         result = run_single(
