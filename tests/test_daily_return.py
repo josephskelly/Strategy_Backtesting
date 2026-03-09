@@ -183,3 +183,59 @@ class TestMarginCap:
         _, v_cap = _signal(ind_cap, current=102.0, prev=100.0, position=5.0, nlv=10_000.0)
         _, v_no_cap = _signal(ind_no_cap, current=102.0, prev=100.0, position=5.0, nlv=10_000.0)
         assert v_cap == pytest.approx(v_no_cap)
+
+
+# ---------------------------------------------------------------------------
+# Hedge configuration
+# ---------------------------------------------------------------------------
+
+def _signal_ticker(indicator, ticker, current, prev, position=0.0, cash=10_000.0, nlv=10_000.0):
+    """Like _signal() but lets the caller specify the ticker."""
+    return indicator.signal(
+        ticker=ticker,
+        date=pd.Timestamp("2020-01-02"),
+        current_price=current,
+        prev_price=prev,
+        prices_history=_DUMMY_HISTORY,
+        position=position,
+        cash=cash,
+        nlv=nlv,
+    )
+
+
+class TestHedge:
+    def test_default_hedge_pct(self):
+        ind = Indicator()
+        assert ind.hedge_pct == pytest.approx(0.0)
+
+    def test_default_hedge_ticker(self):
+        ind = Indicator()
+        assert ind.hedge_ticker == "SQQQ"
+
+    def test_custom_hedge_pct(self):
+        ind = Indicator(hedge_pct=35.0)
+        assert ind.hedge_pct == pytest.approx(35.0)
+
+    def test_primary_ticker_uses_primary_weight(self):
+        # With hedge_pct=20, primary tickers get 80% weight.
+        # 2% drop, nlv_pct=1.0, nlv=10000 → trade_amount = 0.80 × 100 = 80 → value = 2 × 80 = 160
+        ind = Indicator(nlv_pct=1.0, hedge_pct=20.0, hedge_ticker="SQQQ")
+        _, value = _signal_ticker(ind, ticker="TQQQ", current=98.0, prev=100.0, nlv=10_000.0)
+        assert value == pytest.approx(160.0, rel=1e-6)
+
+    def test_hedge_ticker_uses_hedge_weight(self):
+        # With hedge_pct=20, SQQQ gets 20% weight.
+        # 2% drop, nlv_pct=1.0, nlv=10000 → trade_amount = 0.20 × 100 = 20 → value = 2 × 20 = 40
+        ind = Indicator(nlv_pct=1.0, hedge_pct=20.0, hedge_ticker="SQQQ")
+        _, value = _signal_ticker(ind, ticker="SQQQ", current=98.0, prev=100.0, nlv=10_000.0)
+        assert value == pytest.approx(40.0, rel=1e-6)
+
+    def test_hedge_pct_zero_gives_full_primary_weight(self):
+        # hedge_pct=0 → effective_fraction = 1.0 - 0 = 1.0 → same as original behavior
+        ind_no_hedge = Indicator(nlv_pct=1.0, hedge_pct=0.0)
+        ind_orig     = Indicator(nlv_pct=1.0, hedge_pct=0.0)
+        _, value_no_hedge = _signal_ticker(ind_no_hedge, ticker="TQQQ", current=98.0, prev=100.0, nlv=10_000.0)
+        _, value_orig     = _signal_ticker(ind_orig,     ticker="TQQQ", current=98.0, prev=100.0, nlv=10_000.0)
+        # Both should equal uncapped 200.0 (2% × 1% × 10000)
+        assert value_no_hedge == pytest.approx(200.0, rel=1e-6)
+        assert value_orig     == pytest.approx(200.0, rel=1e-6)

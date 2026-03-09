@@ -118,11 +118,26 @@ def run_single(
         print(f"  Warning: could not fetch {ticker}: {e}")
         return None
 
+    # Snapshot primary ticker date range before possibly expanding the index
+    primary_start = prices_df.index[0]
+    primary_end   = prices_df.index[-1]
+
     bar_label = "bars" if interval != "1d" else "trading days"
     print(
         f"  {ticker}: {len(prices_df)} {bar_label} "
-        f"({prices_df.index[0].date()} to {prices_df.index[-1].date()})"
+        f"({primary_start.date()} to {primary_end.date()})"
     )
+
+    # Auto-fetch hedge ticker if enabled
+    hedge_ticker = getattr(indicator, "hedge_ticker", None)
+    hedge_pct    = getattr(indicator, "hedge_pct", 0.0)
+    if hedge_pct > 0 and hedge_ticker and hedge_ticker != ticker:
+        try:
+            hedge_df = fetch_closes(hedge_ticker, range_=range_, interval=interval)
+            prices_df = pd.concat([prices_df, hedge_df], axis=1)
+            print(f"  Hedge: {hedge_ticker} ({hedge_pct:.0f}% of NLV)")
+        except Exception as e:
+            print(f"  Warning: could not fetch hedge {hedge_ticker}: {e}")
 
     engine = BacktestEngine(
         prices_df=prices_df,
@@ -150,15 +165,16 @@ def run_single(
     bh_return: float | None = None
     bh_final: float | None = None
     if benchmark_df is not None:
-        spy = benchmark_df.loc[prices_df.index[0] : prices_df.index[-1]]
+        spy = benchmark_df.loc[primary_start : primary_end]
         if len(spy) >= 2:
             spy_start = float(spy.iloc[0, 0])
             spy_end   = float(spy.iloc[-1, 0])
             bh_return = (spy_end / spy_start - 1) * 100
             bh_final  = INITIAL_CAPITAL * (spy_end / spy_start)
 
-    ticker_start = float(prices_df.iloc[0, 0])
-    ticker_end   = float(prices_df.iloc[-1, 0])
+    primary_prices = prices_df[ticker]
+    ticker_start = float(primary_prices.loc[primary_start])
+    ticker_end   = float(primary_prices.loc[primary_end])
     ticker_bh_return = (ticker_end / ticker_start - 1) * 100
     ticker_bh_final  = INITIAL_CAPITAL * (ticker_end / ticker_start)
 
