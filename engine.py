@@ -80,6 +80,7 @@ class BacktestResults:
     avg_invested_pct: float
     avg_cash_pct: float
     sector_performance: dict
+    cagr: float = 0.0
     snapshots: list = field(default_factory=list)
     min_cash: float = 0.0
     went_negative_cash: bool = False
@@ -239,6 +240,12 @@ class BacktestEngine:
         total_return = (final_value - self.initial_capital) / self.initial_capital * 100
         final_pnl = final_value - self.initial_capital
 
+        # CAGR
+        start_date = self.snapshots[0].date
+        end_date   = self.snapshots[-1].date
+        years      = (end_date - start_date).days / 365.25
+        cagr = ((final_value / self.initial_capital) ** (1 / years) - 1) * 100 if years > 0 else 0.0
+
         # Max drawdown
         running_max = np.maximum.accumulate(total_values)
         drawdowns = (total_values - running_max) / running_max * 100
@@ -309,6 +316,7 @@ class BacktestEngine:
 
         return BacktestResults(
             total_return=total_return,
+            cagr=cagr,
             max_drawdown=max_drawdown,
             sharpe_ratio=sharpe_ratio,
             num_trades=len(self.trades),

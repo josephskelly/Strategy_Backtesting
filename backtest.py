@@ -169,6 +169,7 @@ def run_single(
     ticker_bh_str = f"  |  {ticker} B&H: {ticker_bh_return:.2f}% (${ticker_bh_final:,.0f})"
     print(
         f"  Return: {results.total_return:.2f}%  |  "
+        f"CAGR: {results.cagr:.2f}%  |  "
         f"Final: ${results.final_value:,.2f}  |  "
         f"Max DD: {results.max_drawdown:.2f}%  |  "
         f"Sharpe: {results.sharpe_ratio:.3f}{bh_str}{ticker_bh_str}"
@@ -177,6 +178,7 @@ def run_single(
     return {
         "Ticker": ticker,
         "Return %": round(results.total_return, 2),
+        "CAGR %": round(results.cagr, 2),
         "Final Value $": round(results.final_value, 2),
         "Max Drawdown %": round(results.max_drawdown, 2),
         "Sharpe": round(results.sharpe_ratio, 3),
@@ -240,7 +242,7 @@ def run_all(
     print("\n\n" + "=" * 90)
     print("ALL ETFs — ranked by Return %")
     print("=" * 90)
-    cols = ["Rank", "Ticker", "Category", "Return %", "Final Value $",
+    cols = ["Rank", "Ticker", "Category", "Return %", "CAGR %", "Final Value $",
             "Max Drawdown %", "Sharpe", "Trades", "Years",
             "SPY B&H %", "SPY B&H $", "Asset B&H %", "Asset B&H $"]
     print(summary_df[cols].to_string(index=False))
